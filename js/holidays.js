@@ -43,17 +43,23 @@ const JapaneseHolidays = {
             const d = new Date(date + "T00:00:00");
             if (d.getDay() === 0) { // 日曜日
                 // 翌日以降で最初の平日（祝日でない日）を探す
+                // 最大 14日まで探索 (連続祝日の無限ループ防止)
                 let sub = new Date(d);
-                do {
+                let found = false;
+                for (let i = 0; i < 14; i++) {
                     sub.setDate(sub.getDate() + 1);
                     const subStr = sub.getFullYear() + '-' +
                         String(sub.getMonth() + 1).padStart(2, '0') + '-' +
                         String(sub.getDate()).padStart(2, '0');
                     if (!holidays[subStr]) {
                         result[subStr] = "振替休日";
+                        found = true;
                         break;
                     }
-                } while (true);
+                }
+                if (!found) {
+                    console.warn('[holidays] 振替休日の探索が 14日以内に見つかりませんでした (基準日 ' + date + ')');
+                }
             }
         }
         return result;

@@ -4386,6 +4386,17 @@ const app = {
         if (start === end) { app.showToast('開始時間と終了時間が同じです', 'error'); return; }
         if (document.getElementById('editShiftHoliday').checked && id) { await this.deleteShift(id); this.closeModal('editShiftModal'); return; }
 
+        // 休憩時間バリデーション: 労働時間 (拘束時間) を超える休憩は不正
+        // 旧: ロジック側でクランプ (hours=0) するだけだったが、保存時に弾く方が安全
+        const [sh, sm] = start.split(':').map(Number);
+        const [eh, em] = end.split(':').map(Number);
+        let durationMin = (eh * 60 + em) - (sh * 60 + sm);
+        if (durationMin <= 0) durationMin += 1440; // 日またぎ補正
+        if (Number.isFinite(breakMins) && breakMins > 0 && breakMins >= durationMin) {
+            app.showToast(`休憩時間 (${breakMins}分) が拘束時間 (${durationMin}分) 以上です。休憩を短くしてください`, 'error');
+            return;
+        }
+
         const memo = (document.getElementById('editShiftMemo')?.value || '').trim();
         const data = { staff_id: staffId, date, start_time: start, end_time: end, break_minutes: breakMins, memo };
         if (!id) data.organization_id = this.state.organization_id;

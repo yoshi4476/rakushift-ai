@@ -2,6 +2,7 @@ import os
 import json
 import hmac
 import hashlib
+import html as _html
 import asyncio
 import logging
 import datetime as _datetime_module
@@ -1010,8 +1011,12 @@ async def send_welcome_email(to_email: str, org_name: str, contract_id: str,
     </div>
 </div>
 """.format(
-        org_name=org_name, plan_name=plan_name, login_url=login_url,
-        contract_id=contract_id, password=password,
+        # HTML エスケープ: Stripe metadata 経由で <script> 等が混入しても無害化
+        org_name=_html.escape(str(org_name)),
+        plan_name=_html.escape(str(plan_name)),
+        login_url=_html.escape(str(login_url), quote=True),
+        contract_id=_html.escape(str(contract_id)),
+        password=_html.escape(str(password)),
     )
 
     msg = MIMEMultipart("alternative")
