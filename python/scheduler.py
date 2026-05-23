@@ -1,6 +1,5 @@
 import pulp
 import logging
-import random
 import re
 from datetime import datetime, timedelta
 
@@ -315,7 +314,8 @@ class ShiftScheduler:
         try:
             parts = str(time_str).split(":")
             return int(parts[0]) * 60 + int(parts[1])
-        except Exception:
+        except (ValueError, IndexError, TypeError) as e:
+            logger.warning("[_to_minutes] Invalid time string '%s': %s", time_str, e)
             return 0
 
     def _from_minutes(self, mins):
@@ -340,8 +340,8 @@ class ShiftScheduler:
         for d in (self.closed_days or []):
             try:
                 closed_ints.append(int(d))
-            except Exception:
-                pass
+            except (ValueError, TypeError) as e:
+                logger.warning("[_get_day_type] Invalid closed_day '%s': %s", d, e)
                 
         if js_dow in closed_ints:
             return "closed"

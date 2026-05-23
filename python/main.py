@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import asyncio
 import logging
+import datetime as _datetime_module
 import httpx
 import stripe
 from fastapi import FastAPI, Request, Header
@@ -312,7 +313,7 @@ async def verify_session_org_id(session_id: Optional[str]) -> Optional[Dict[str,
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "message": "Rakushift Engine v3.2 Ready", "build": "2026.05.19.1"}
+    return {"status": "ok", "message": "Rakushift Engine v3.2 Ready", "build": "2026.05.23.1"}
 
 
 @app.get("/health")
@@ -1495,8 +1496,7 @@ async def stripe_webhook(request: Request):
                         update_body = {"subscription_status": "past_due"}
                         # 初回の支払い失敗時のみタイムスタンプを記録
                         if not existing_failed_at:
-                            import datetime
-                            update_body["payment_failed_at"] = datetime.datetime.utcnow().isoformat()
+                            update_body["payment_failed_at"] = _datetime_module.datetime.utcnow().isoformat()
 
                         await supabase_query(
                             "config",
@@ -1507,21 +1507,20 @@ async def stripe_webhook(request: Request):
 
                         # 3週間(21日)経過チェック → 自動ライセンス停止
                         if existing_failed_at and org_id:
-                            import datetime
                             # PostgreSQL TIMESTAMPTZ は ISO 8601 (例: 2026-05-22T12:34:56.789012+00:00 or with Z)
                             # fromisoformat は Python 3.11+ で "Z" を受理するが、3.10 以前は不可なので明示置換
                             raw_dt = str(existing_failed_at).strip()
                             failed_date = None
                             try:
-                                failed_date = datetime.datetime.fromisoformat(raw_dt.replace("Z", "+00:00"))
+                                failed_date = _datetime_module.datetime.fromisoformat(raw_dt.replace("Z", "+00:00"))
                             except Exception as parse_err:
                                 logger.warning("[Webhook] payment_failed_at parse failed for %s: %s. Raw=%s",
                                                contract_id, parse_err, raw_dt[:64])
                             if failed_date is not None:
                                 # naive datetime なら UTC 扱い
                                 if failed_date.tzinfo is None:
-                                    failed_date = failed_date.replace(tzinfo=datetime.timezone.utc)
-                                days_since = (datetime.datetime.now(datetime.timezone.utc) - failed_date).days
+                                    failed_date = failed_date.replace(tzinfo=_datetime_module.timezone.utc)
+                                days_since = (_datetime_module.datetime.now(_datetime_module.timezone.utc) - failed_date).days
                                 if days_since >= 21:
                                     await supabase_rpc("suspend_license", {
                                         "p_organization_id": org_id,
