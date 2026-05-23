@@ -100,7 +100,8 @@ const app = {
         
         // 設定デフォルト値
         defaultConfig: {
-            admin_password: "0000",
+            // admin_password は config_safe ビューから除外済 (migration 40)
+            // 変更は専用モーダル + update_admin_password_by_contract RPC のみ
             opening_time: "09:00",
             closing_time: "22:00",
             hourly_wage_default: 1100,
@@ -948,25 +949,14 @@ const app = {
 
             let result = null;
 
-            // RPC経由の認証を試行
+            // RPC経由の認証のみ (migration 18 以降は hq_login RPC が必須)
+            // 旧 HQ_ACCOUNTS フロントフォールバックは migration 適用済の現環境では不要なため削除
+            // (削除前はフロントに rakushift_hq 等の固定パスワードが残っていてセキュリティリスク)
             try {
                 result = await API.rpc('hq_login', { p_login_id: loginId, p_password: password });
             } catch (rpcErr) {
-                console.warn('[HQ] hq_login RPC not available, using fallback auth:', rpcErr.message);
-                // RPC未作成の場合のフォールバック認証
-                // ※Supabaseにマイグレーション適用後はRPCが優先される
-                const HQ_ACCOUNTS = [
-                    { login_id: 'hq_master', password: 'rakushift_hq' },
-                    { login_id: 'demo', password: 'demo1234' },
-                    { login_id: 'demo', password: 'rakushift1234' },
-                    { login_id: 'hq_master', password: 'rakushift1234' }
-                ];
-                const match = HQ_ACCOUNTS.find(a => a.login_id === loginId && a.password === password);
-                if (match) {
-                    result = { status: 'success', role: 'hq_admin', login_id: match.login_id };
-                } else {
-                    result = { status: 'error', message: '本部IDまたはパスワードが違います' };
-                }
+                console.error('[HQ] hq_login RPC failed:', rpcErr.message);
+                result = { status: 'error', message: 'ログインサーバに接続できません。時間をおいて再試行してください。' };
             }
 
             if (result && result.status === 'success') {
@@ -3477,10 +3467,11 @@ const app = {
                             
                             <div>
                                 <label class="block text-xs font-bold text-gray-500 mb-1">管理者パスワード</label>
-                                <input type="text" id="settingPassword" class="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono tracking-wider" value="${config.admin_password || '0000'}">
+                                <div class="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 font-mono text-gray-400 tracking-wider select-none">••••••••</div>
+                                <p class="text-[11px] text-gray-400 mt-1">セキュリティのため画面表示しません。変更は下の「管理者パスワードを変更」ボタンから</p>
                             </div>
                         </div>
-                        
+
                         <div class="border-t border-gray-100 pt-4 flex flex-wrap gap-3">
                             <button onclick="app.openModal('changePasswordModal')" class="flex items-center gap-2 text-sm font-bold text-amber-600 bg-amber-50 border border-amber-200 px-4 py-2.5 rounded-lg hover:bg-amber-100 transition">
                                 <i class="fa-solid fa-key"></i> 店舗ログインパスワードを変更
@@ -3785,7 +3776,8 @@ const app = {
 
         // 基本設定
         config.hourly_wage_default = Number(document.getElementById('settingHourlyWage')?.value || 1100);
-        config.admin_password = document.getElementById('settingPassword')?.value || config.admin_password;
+        // admin_password は専用モーダル + update_admin_password_by_contract RPC でのみ変更可
+        // (config_safe view から除外され、ここで読んでも空文字なので参照しない)
         config.shop_rules_text = document.getElementById('settingShopRules')?.value || '';
 
         // 営業時間
@@ -3917,21 +3909,13 @@ const app = {
                 p_data: updateData
             });
 
-            // 管理者パスワードが変更されていたら、staffテーブルの管理者アカウントも更新
-            if (newConfig.admin_password && newConfig.admin_password !== this.state.config.admin_password) {
+            // 管理者パスワード変更は専用モーダル + update_admin_password_by_contract RPC のみ
+            // (このブロックの旧 staff/config 平文保存ロジックは migration 40 で view 除外後は無効化)
+            if (false) {
                 const adminStaff = this.state.staff.find(s => s.login_id === 'admin');
                 if (adminStaff) {
                     try {
-                        await API.rpc('update_staff_password', {
-                            p_staff_id: adminStaff.id,
-                            p_new_password: newConfig.admin_password
-                        });
-                        // config側のadmin_passwordも更新（表示用のフォールバック）
-                        await API.rpc('update_config_safe', {
-                            p_config_id: configId,
-                            p_data: { admin_password: newConfig.admin_password }
-                        });
-                        // パスワード更新完了（ログ省略）
+                        // 廃止: openAdminPasswordChange モーダル経由で行う
                     } catch (pwErr) {
                         console.error('[Settings] Password update failed:', pwErr);
                         this.showToast('パスワード更新に失敗しました', 'error');
