@@ -734,24 +734,33 @@ class ShiftScheduler:
     # ===========================================================
 
     def solve(self, force=False):
-        result = self._solve_milp(force=force, tier=3)
-        if result:
-            logger.info("[Solve] Tier 3 (full) succeeded")
-            return result
+        # スタッフ数による Tier 自動降格 (変数爆発の予防)
+        # 50名超: Tier 3 をスキップ (品質最適化はタイムアウト必至のため)
+        # 100名超: Tier 1 から開始 (法的制約のみ確実に守る)
+        n_staff = len(self.staff_list)
+        n_days = len(self.dates)
+        # おおまかな変数数推定: スタッフ × 日数 × 平均5シフトオプション
+        estimated_vars = n_staff * n_days * 5
+        logger.info("[Solve] staff=%d days=%d est_vars=%d", n_staff, n_days, estimated_vars)
 
-        logger.info("[Fallback] Relaxing Tier 3...")
-        result = self._solve_milp(force=force, tier=2)
-        if result:
-            logger.info("[Solve] Tier 2 (no OJT/balance) succeeded")
-            return result
+        start_tier = 3
+        if n_staff >= 100 or estimated_vars > 30000:
+            start_tier = 1
+            logger.warning("[Solve] Large scale (staff=%d) → starting from Tier 1 (legal only) to avoid timeout", n_staff)
+        elif n_staff >= 50 or estimated_vars > 15000:
+            start_tier = 2
+            logger.warning("[Solve] Medium-large scale (staff=%d) → starting from Tier 2 (skip quality opt)", n_staff)
 
-        logger.info("[Fallback] Relaxing to Tier 1 + force...")
-        result = self._solve_milp(force=True, tier=1)
-        if result:
-            logger.info("[Solve] Tier 1 (legal only) succeeded")
-            return result
+        # Tier 3 → 2 → 1 (force) → Greedy の順で試行 (start_tier 以下のみ)
+        for current_tier in range(start_tier, 0, -1):
+            use_force = force or (current_tier == 1)
+            result = self._solve_milp(force=use_force, tier=current_tier)
+            if result:
+                logger.info("[Solve] Tier %d succeeded (force=%s)", current_tier, use_force)
+                return result
+            logger.info("[Fallback] Tier %d failed, trying lower tier...", current_tier)
 
-        logger.info("[Fallback] Greedy...")
+        logger.info("[Fallback] All MILP tiers failed → Greedy")
         return self._solve_greedy()
 
     def _solve_milp(self, force=False, tier=3):
@@ -1595,6 +1604,9 @@ class ShiftScheduler:
             prob += penalty
             # Tierごとにタイムリミットを段階化（合計最大110秒でRailway制限内に収める）
             tier_time_limits = {3: 60, 2: 30, 1: 20}
+            # MILP 規模をログ出力 (運用監視・スケーラビリティ判断用)
+            logger.info("[MILP] tier=%d vars=%d constraints=%d timeLimit=%ds",
+                        tier, len(x), len(prob.constraints), tier_time_limits.get(tier, 60))
             solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=tier_time_limits.get(tier, 60))
             prob.solve(solver)
 

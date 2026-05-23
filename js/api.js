@@ -335,19 +335,29 @@ const API = {
     },
     // --- 事前チェック (人員不足の検出) ---
     async checkFeasibility(payload) {
+        // 軽い事前チェックなので 30秒タイムアウト
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
         try {
             const res = await fetch(CHECK_API_URL, {
                 method: 'POST',
                 credentials: 'omit',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                signal: controller.signal
             });
             if (!res.ok) return null;
             const data = await res.json();
             return data.check || null;
         } catch (e) {
-            console.error("Check failed:", e);
+            if (e.name === 'AbortError') {
+                console.warn("Check timeout (30s)");
+            } else {
+                console.error("Check failed:", e);
+            }
             return null;
+        } finally {
+            clearTimeout(timeoutId);
         }
     },
 
@@ -371,12 +381,28 @@ const API = {
                 existing_shifts: payload.existing_shifts || []
             };
 
-            const res = await fetch(CALC_API_URL, {
-                method: 'POST',
-                credentials: 'omit',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(serverPayload)
-            });
+            // MILP 計算は重い: Tier3=60s + Tier2=30s + Tier1=20s + Gemini=60s = 最大170秒
+            // それ以上は確実にサーバ異常 → 3分でクライアント側からアボート
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 180000);
+
+            let res;
+            try {
+                res = await fetch(CALC_API_URL, {
+                    method: 'POST',
+                    credentials: 'omit',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(serverPayload),
+                    signal: controller.signal
+                });
+            } catch (fetchErr) {
+                if (fetchErr.name === 'AbortError') {
+                    throw new Error('サーバ応答が 3分以内に返りませんでした。Railway / ネットワークを確認して再試行してください');
+                }
+                throw fetchErr;
+            } finally {
+                clearTimeout(timeoutId);
+            }
 
             if (!res.ok) {
                 throw new Error(`Python Server Error: ${res.statusText}`);
@@ -405,19 +431,28 @@ const API = {
     },
 
     async diagnose(payload) {
+        // Gemini API 呼び出しあり、60秒タイムアウト
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
         try {
             const res = await fetch(DIAGNOSE_API_URL, {
                 method: 'POST',
                 credentials: 'omit',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                signal: controller.signal
             });
             if (!res.ok) throw new Error(`Server Error: ${res.status}`);
             const data = await res.json();
             return data.suggestions || [];
         } catch (e) {
+            if (e.name === 'AbortError') {
+                throw new Error('診断サーバの応答がタイムアウト (60秒) しました');
+            }
             console.error("Diagnose Error:", e);
             throw e;
+        } finally {
+            clearTimeout(timeoutId);
         }
     },
 
