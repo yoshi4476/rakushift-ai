@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ラクシフトAI - サービス紹介資料</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+@page { size: A4 landscape; margin: 0; }
+body { margin: 0; font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; background: #f3f4f6; }
+.slide {
+  width: 297mm; height: 210mm; margin: 8mm auto;
+  background: white; box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  position: relative; overflow: hidden; padding: 15mm 18mm;
+  display: flex; flex-direction: column;
+  page-break-after: always;
+}
+.slide:last-child { page-break-after: auto; }
+@media print {
+  body { background: white; }
+  .slide { margin: 0; box-shadow: none; page-break-after: always; }
+}
+.logo-text {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; font-weight: 900; letter-spacing: -0.02em;
+}
+.slide-header { display: flex; align-items: center; gap: 14px; border-bottom: 3px solid #3b82f6; padding-bottom: 12px; margin-bottom: 20px; }
+.slide-number { position: absolute; bottom: 8mm; right: 12mm; color: #9ca3af; font-size: 11px; font-weight: 600; }
+.slide-footer { position: absolute; bottom: 8mm; left: 12mm; font-size: 10px; color: #9ca3af; }
+.gradient-blue { background: linear-gradient(135deg, #3b82f6, #6366f1); }
+.gradient-purple { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+.gradient-green { background: linear-gradient(135deg, #10b981, #14b8a6); }
+.gradient-orange { background: linear-gradient(135deg, #f97316, #ef4444); }
+.feature-card { transition: transform 0.2s; }
+.mock-window {
+  background: white; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  overflow: hidden; border: 1px solid #e5e7eb;
+}
+.mock-titlebar { background: linear-gradient(180deg, #f9fafb, #f3f4f6); border-bottom: 1px solid #e5e7eb; padding: 6px 10px; display: flex; gap: 5px; align-items: center; }
+.mock-dot { width: 10px; height: 10px; border-radius: 50%; }
+.shift-bar { background: linear-gradient(90deg, #3b82f6, #6366f1); height: 18px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ============ SLIDE 1: 表紙 ============ -->
+<div class="slide" style="background: linear-gradient(135deg, #1e3a8a 0%, #4c1d95 60%, #831843 100%); color: white;">
+  <div style="position:absolute; top:0; left:0; right:0; bottom:0; opacity:0.05; background-image: radial-gradient(circle at 20% 30%, white 1px, transparent 1px), radial-gradient(circle at 80% 70%, white 1px, transparent 1px); background-size: 40px 40px;"></div>
+  <div style="position:relative; z-index:1; height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;">
+    <img src="../images/rakushift_logo_transparent.png" alt="ラクシフトAI" style="height: 100px; margin-bottom: 30px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));">
+    <div style="font-size: 62px; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 14px;">
+      ラクシフト<span style="background:linear-gradient(135deg, #fbbf24, #fb923c); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">AI</span>
+    </div>
+    <div style="font-size: 26px; font-weight: 300; opacity: 0.9; margin-bottom: 50px; letter-spacing: 0.05em;">
+      シフト作成、もう悩まない。
+    </div>
+    <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 24px 50px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.2);">
+      <div style="font-size: 18px; opacity:0.9; margin-bottom: 8px;">📅 シフト作成時間を</div>
+      <div style="font-size: 56px; font-weight: 900;">
+        <span style="color: #fbbf24;">90%削減</span>
+      </div>
+      <div style="font-size: 16px; opacity:0.8; margin-top: 4px;">AI が最適なシフトを自動生成</div>
+    </div>
+  </div>
+  <div class="slide-number" style="color: rgba(255,255,255,0.4)">P.1</div>
+</div>
+
+<!-- ============ SLIDE 2: こんな悩み、ありませんか? ============ -->
+<div class="slide">
+  <div class="slide-header">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">こんな悩み、ありませんか？</div>
+      <div style="font-size: 13px; color: #6b7280;">店長・人事担当者が抱える「シフト作成の闇」</div>
+    </div>
+  </div>
+  <div class="flex-1 grid grid-cols-2 gap-6 mt-4">
+    <div class="bg-red-50 border-2 border-red-200 rounded-2xl p-6 flex gap-4">
+      <div class="w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center text-2xl flex-shrink-0">😩</div>
+      <div>
+        <div class="text-xl font-bold text-red-700 mb-2">毎月8〜10時間かけて手作業</div>
+        <div class="text-sm text-gray-700 leading-relaxed">スタッフの希望休をExcelで管理し、勤務時間バランスを電卓で計算...深夜まで残業が常態化。</div>
+      </div>
+    </div>
+    <div class="bg-orange-50 border-2 border-orange-200 rounded-2xl p-6 flex gap-4">
+      <div class="w-14 h-14 rounded-full bg-orange-500 text-white flex items-center justify-center text-2xl flex-shrink-0">🔥</div>
+      <div>
+        <div class="text-xl font-bold text-orange-700 mb-2">人員不足・過剰配置のミス</div>
+        <div class="text-sm text-gray-700 leading-relaxed">「ピーク時に人が足りない」「暇な時間帯に多すぎ」を毎月繰り返し、人件費が無駄になる。</div>
+      </div>
+    </div>
+    <div class="bg-amber-50 border-2 border-amber-200 rounded-2xl p-6 flex gap-4">
+      <div class="w-14 h-14 rounded-full bg-amber-500 text-white flex items-center justify-center text-2xl flex-shrink-0">⚖️</div>
+      <div>
+        <div class="text-xl font-bold text-amber-700 mb-2">労基法を意識しきれない</div>
+        <div class="text-sm text-gray-700 leading-relaxed">週40時間/連続6日上限/休憩ルール...全部把握して手作業で守るのは現実的に困難。</div>
+      </div>
+    </div>
+    <div class="bg-purple-50 border-2 border-purple-200 rounded-2xl p-6 flex gap-4">
+      <div class="w-14 h-14 rounded-full bg-purple-500 text-white flex items-center justify-center text-2xl flex-shrink-0">📋</div>
+      <div>
+        <div class="text-xl font-bold text-purple-700 mb-2">不公平への不満</div>
+        <div class="text-sm text-gray-700 leading-relaxed">「いつも私ばかり遅番」「希望休が通らない」 — 主観での割り当てがスタッフ離職の原因に。</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.2</div>
+</div>
+
+<!-- ============ SLIDE 3: ラクシフトAIが解決します ============ -->
+<div class="slide" style="background: linear-gradient(135deg, #f0f9ff 0%, #faf5ff 100%);">
+  <div class="slide-header" style="border-color: #8b5cf6;">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">ラクシフトAIが、すべて解決します</div>
+      <div style="font-size: 13px; color: #6b7280;">AI + 数理最適化エンジンで、最良のシフトを自動生成</div>
+    </div>
+  </div>
+  <div class="flex-1 flex flex-col items-center justify-center">
+    <div class="grid grid-cols-3 gap-6 w-full max-w-4xl">
+      <div class="bg-white rounded-3xl p-8 text-center shadow-xl border-t-4 border-blue-500">
+        <div class="text-7xl mb-3">⚡</div>
+        <div class="text-2xl font-bold text-blue-700 mb-2">圧倒的に早い</div>
+        <div class="text-sm text-gray-600">8時間 → <span class="font-bold text-blue-600">わずか3分</span></div>
+      </div>
+      <div class="bg-white rounded-3xl p-8 text-center shadow-xl border-t-4 border-emerald-500">
+        <div class="text-7xl mb-3">🎯</div>
+        <div class="text-2xl font-bold text-emerald-700 mb-2">最適配置</div>
+        <div class="text-sm text-gray-600">人員過不足・公平性を<br>同時最適化</div>
+      </div>
+      <div class="bg-white rounded-3xl p-8 text-center shadow-xl border-t-4 border-purple-500">
+        <div class="text-7xl mb-3">📱</div>
+        <div class="text-2xl font-bold text-purple-700 mb-2">どこでも操作</div>
+        <div class="text-sm text-gray-600">PC・スマホ・タブレット<br>すべて対応</div>
+      </div>
+    </div>
+    <div class="mt-10 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 text-white rounded-2xl px-12 py-6 text-center shadow-2xl">
+      <div class="text-lg opacity-90 mb-2">月間シフト作成時間</div>
+      <div class="text-5xl font-black">
+        8時間 <span class="text-yellow-300">→</span> 30分以下
+      </div>
+      <div class="text-base opacity-90 mt-2">90%以上の時間削減を実現</div>
+    </div>
+  </div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.3</div>
+</div>
+
+<!-- ============ SLIDE 4: 主な機能一覧 ============ -->
+<div class="slide">
+  <div class="slide-header">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">主な機能</div>
+      <div style="font-size: 13px; color: #6b7280;">シフト管理に必要な機能をワンパッケージで提供</div>
+    </div>
+  </div>
+  <div class="flex-1 grid grid-cols-3 gap-4 mt-2">
+    <div class="bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-2xl p-5 shadow-lg">
+      <div class="text-3xl mb-2">🤖</div>
+      <div class="text-lg font-bold mb-1">AIシフト自動生成</div>
+      <div class="text-xs opacity-90 leading-relaxed">数理最適化 + Geminiで最適なシフトを瞬時に作成</div>
+    </div>
+    <div class="bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-2xl p-5 shadow-lg">
+      <div class="text-3xl mb-2">📅</div>
+      <div class="text-lg font-bold mb-1">3モード表示</div>
+      <div class="text-xs opacity-90 leading-relaxed">月間/週間/1日 切替え。ガントチャートで見やすく</div>
+    </div>
+    <div class="bg-gradient-to-br from-amber-500 to-orange-600 text-white rounded-2xl p-5 shadow-lg">
+      <div class="text-3xl mb-2">✏️</div>
+      <div class="text-lg font-bold mb-1">直感的な編集</div>
+      <div class="text-xs opacity-90 leading-relaxed">ドラッグ&ドロップでシフト時間・担当者を変更</div>
+    </div>
+    <div class="bg-gradient-to-br from-purple-500 to-pink-600 text-white rounded-2xl p-5 shadow-lg">
+      <div class="text-3xl mb-2">📝</div>
+      <div class="text-lg font-bold mb-1">シフトメモ</div>
+      <div class="text-xs opacity-90 leading-relaxed">「レジ閉め担当」「新人指導」など引継ぎ事項を記録</div>
+    </div>
+    <div class="bg-gradient-to-br from-rose-500 to-red-600 text-white rounded-2xl p-5 shadow-lg">
+      <div class="text-3xl mb-2">👥</div>
+      <div class="text-lg font-bold mb-1">スタッフ管理</div>
+      <div class="text-xs opacity-90 leading-relaxed">希望休・勤務制限・時給を一元管理</div>
+    </div>
+    <div class="bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-2xl p-5 shadow-lg">
+      <div class="text-3xl mb-2">🏢</div>
+      <div class="text-lg font-bold mb-1">本部・チェーン対応</div>
+      <div class="text-xs opacity-90 leading-relaxed">本部から複数店舗を一括観覧・統括</div>
+    </div>
+    <div class="bg-gradient-to-br from-fuchsia-500 to-purple-600 text-white rounded-2xl p-5 shadow-lg">
+      <div class="text-3xl mb-2">📊</div>
+      <div class="text-lg font-bold mb-1">人件費分析</div>
+      <div class="text-xs opacity-90 leading-relaxed">月次人件費・労働時間を自動集計・グラフ化</div>
+    </div>
+    <div class="bg-gradient-to-br from-lime-500 to-green-600 text-white rounded-2xl p-5 shadow-lg">
+      <div class="text-3xl mb-2">⚖️</div>
+      <div class="text-lg font-bold mb-1">労基法準拠</div>
+      <div class="text-xs opacity-90 leading-relaxed">週40h・連続6日・休憩ルールを自動チェック</div>
+    </div>
+    <div class="bg-gradient-to-br from-slate-600 to-gray-700 text-white rounded-2xl p-5 shadow-lg">
+      <div class="text-3xl mb-2">🖨️</div>
+      <div class="text-lg font-bold mb-1">印刷・PDF出力</div>
+      <div class="text-xs opacity-90 leading-relaxed">店舗掲示用にA4で綺麗に印刷可能</div>
+    </div>
+  </div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.4</div>
+</div>
+
+<!-- ============ SLIDE 5: AIシフト自動生成 (詳細) ============ -->
+<div class="slide">
+  <div class="slide-header">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">🤖 AIシフト自動生成</div>
+      <div style="font-size: 13px; color: #6b7280;">ボタンひとつで、最適なシフトを瞬時に作成</div>
+    </div>
+  </div>
+  <div class="flex-1 grid grid-cols-2 gap-6 mt-2">
+    <div class="flex flex-col gap-3">
+      <div class="bg-blue-50 border-l-4 border-blue-500 rounded-r-xl p-4">
+        <div class="text-base font-bold text-blue-800 mb-1">✓ 完全自動で最適配置</div>
+        <div class="text-xs text-gray-700">スタッフの希望休・勤務時間制限・店舗の必要人員を全て考慮</div>
+      </div>
+      <div class="bg-emerald-50 border-l-4 border-emerald-500 rounded-r-xl p-4">
+        <div class="text-base font-bold text-emerald-800 mb-1">✓ 配置理由が見える</div>
+        <div class="text-xs text-gray-700">「希望シフトと完全一致」「メンター付き」など、なぜその配置か明確</div>
+      </div>
+      <div class="bg-amber-50 border-l-4 border-amber-500 rounded-r-xl p-4">
+        <div class="text-base font-bold text-amber-800 mb-1">✓ 不足箇所を一目で確認</div>
+        <div class="text-xs text-gray-700">「5月3日 14:00 必要3名/不足1名」など、警告レポート付き</div>
+      </div>
+      <div class="bg-purple-50 border-l-4 border-purple-500 rounded-r-xl p-4">
+        <div class="text-base font-bold text-purple-800 mb-1">✓ 何度でもやり直し可能</div>
+        <div class="text-xs text-gray-700">「シミュレーション」モードで、納得いくまで試行錯誤</div>
+      </div>
+    </div>
+    <div>
+      <div class="mock-window">
+        <div class="mock-titlebar"><div class="mock-dot bg-red-500"></div><div class="mock-dot bg-yellow-500"></div><div class="mock-dot bg-green-500"></div><div class="text-xs text-gray-500 ml-2">AIシフト生成プレビュー</div></div>
+        <div class="bg-gradient-to-r from-emerald-500 to-teal-600 text-white p-3 text-sm font-bold flex items-center gap-2">🧪 シフト生成プレビュー (シミュレーション)</div>
+        <div class="p-3 bg-gray-50 grid grid-cols-4 gap-2 text-center text-xs">
+          <div class="bg-white p-2 rounded"><div class="text-lg font-black text-emerald-600">45</div><div class="text-gray-500">生成数</div></div>
+          <div class="bg-white p-2 rounded"><div class="text-lg font-black text-blue-600">7</div><div class="text-gray-500">日数</div></div>
+          <div class="bg-white p-2 rounded"><div class="text-lg font-black text-purple-600">8</div><div class="text-gray-500">配置スタッフ</div></div>
+          <div class="bg-white p-2 rounded"><div class="text-lg font-black text-orange-600">240</div><div class="text-gray-500">合計時間</div></div>
+        </div>
+        <div class="bg-emerald-50 border border-emerald-200 m-3 rounded-lg p-2 text-xs font-bold text-emerald-700">
+          ✓ 制約違反なし: 全条件を満たした最適配置です
+        </div>
+        <div class="px-3 pb-3">
+          <div class="text-xs font-bold text-gray-600 mb-1">月 5/12 (8名配置)</div>
+          <table class="w-full text-xs">
+            <thead class="bg-gray-100 text-gray-600"><tr><th class="p-1 text-left">スタッフ</th><th class="p-1">時間</th><th class="p-1">配置理由</th></tr></thead>
+            <tbody class="divide-y divide-gray-100">
+              <tr><td class="p-1 font-bold">山田 太郎</td><td class="p-1 text-center font-mono">09:00-17:00</td><td class="p-1"><span class="bg-blue-100 text-blue-700 px-2 rounded-full">希望シフト完全一致</span></td></tr>
+              <tr><td class="p-1 font-bold">鈴木 花子</td><td class="p-1 text-center font-mono">10:00-19:00</td><td class="p-1"><span class="bg-purple-100 text-purple-700 px-2 rounded-full">メンター・管理者</span></td></tr>
+              <tr><td class="p-1 font-bold">佐藤 健</td><td class="p-1 text-center font-mono">12:00-21:00</td><td class="p-1"><span class="bg-yellow-100 text-yellow-700 px-2 rounded-full">高評価ランク</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.5</div>
+</div>
+
+<!-- ============ SLIDE 6: 3モード表示 ============ -->
+<div class="slide">
+  <div class="slide-header">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">📅 3モード切替表示</div>
+      <div style="font-size: 13px; color: #6b7280;">用途に合わせて月間・週間・1日を瞬時に切替</div>
+    </div>
+  </div>
+  <div class="flex-1 grid grid-cols-3 gap-4 mt-2">
+    <!-- 月間 -->
+    <div class="flex flex-col">
+      <div class="bg-blue-600 text-white text-center py-2 rounded-t-lg font-bold">月間モード</div>
+      <div class="mock-window flex-1 border-t-0 rounded-t-none">
+        <div class="p-2 bg-gray-50 text-[8px]">
+          <div class="grid grid-cols-7 gap-0.5">
+            <div class="bg-blue-100 p-1 text-center font-bold text-blue-700">1</div>
+            <div class="bg-white p-1 text-center">2</div>
+            <div class="bg-white p-1 text-center">3</div>
+            <div class="bg-blue-100 p-1 text-center">4</div>
+            <div class="bg-white p-1 text-center">5</div>
+            <div class="bg-white p-1 text-center">6</div>
+            <div class="bg-red-100 p-1 text-center text-red-700">7</div>
+            <div class="bg-blue-200 p-1 text-center">8</div>
+            <div class="bg-white p-1 text-center">9</div>
+            <div class="bg-blue-100 p-1 text-center">10</div>
+            <div class="bg-white p-1 text-center">11</div>
+            <div class="bg-blue-100 p-1 text-center">12</div>
+            <div class="bg-white p-1 text-center">13</div>
+            <div class="bg-red-100 p-1 text-center text-red-700">14</div>
+          </div>
+          <div class="text-[7px] text-gray-500 mt-2 text-center">月全体を俯瞰</div>
+        </div>
+      </div>
+      <div class="bg-blue-50 p-3 text-xs rounded-b-lg border border-blue-200 border-t-0">
+        <div class="font-bold text-blue-700 mb-1">こんな時に</div>
+        <ul class="text-gray-700 space-y-0.5 list-disc list-inside">
+          <li>月全体のバランス確認</li>
+          <li>休みの偏りチェック</li>
+          <li>月次シフト印刷</li>
+        </ul>
+      </div>
+    </div>
+    <!-- 1週間 -->
+    <div class="flex flex-col">
+      <div class="bg-emerald-600 text-white text-center py-2 rounded-t-lg font-bold">1週間モード</div>
+      <div class="mock-window flex-1 border-t-0 rounded-t-none">
+        <div class="p-2 text-[8px]">
+          <div class="space-y-1">
+            <div class="grid grid-cols-[35px_1fr] gap-1 items-center">
+              <div class="font-bold">山田</div>
+              <div class="bg-gray-100 relative h-3 rounded"><div class="shift-bar" style="position:absolute; left:20%; width:30%;"></div></div>
+            </div>
+            <div class="grid grid-cols-[35px_1fr] gap-1 items-center">
+              <div class="font-bold">鈴木</div>
+              <div class="bg-gray-100 relative h-3 rounded"><div class="shift-bar" style="position:absolute; left:35%; width:35%; background:linear-gradient(90deg,#10b981,#14b8a6);"></div></div>
+            </div>
+            <div class="grid grid-cols-[35px_1fr] gap-1 items-center">
+              <div class="font-bold">佐藤</div>
+              <div class="bg-gray-100 relative h-3 rounded"><div class="shift-bar" style="position:absolute; left:50%; width:30%; background:linear-gradient(90deg,#8b5cf6,#ec4899);"></div></div>
+            </div>
+            <div class="grid grid-cols-[35px_1fr] gap-1 items-center">
+              <div class="font-bold">高橋</div>
+              <div class="bg-gray-100 relative h-3 rounded"><div class="shift-bar" style="position:absolute; left:10%; width:40%; background:linear-gradient(90deg,#f97316,#ef4444);"></div></div>
+            </div>
+          </div>
+          <div class="text-[7px] text-gray-500 mt-2 text-center">15分単位のガントチャート</div>
+        </div>
+      </div>
+      <div class="bg-emerald-50 p-3 text-xs rounded-b-lg border border-emerald-200 border-t-0">
+        <div class="font-bold text-emerald-700 mb-1">こんな時に</div>
+        <ul class="text-gray-700 space-y-0.5 list-disc list-inside">
+          <li>時間帯ごとの人員確認</li>
+          <li>ピーク帯の重なりチェック</li>
+          <li>ドラッグで時間調整</li>
+        </ul>
+      </div>
+    </div>
+    <!-- 1日 -->
+    <div class="flex flex-col">
+      <div class="bg-purple-600 text-white text-center py-2 rounded-t-lg font-bold">1日モード ⭐NEW</div>
+      <div class="mock-window flex-1 border-t-0 rounded-t-none">
+        <div class="p-2 text-[8px]">
+          <div class="space-y-1 mb-2">
+            <div class="grid grid-cols-[35px_1fr] gap-1 items-center">
+              <div class="font-bold">山田</div>
+              <div class="bg-gray-100 relative h-3 rounded"><div class="shift-bar" style="position:absolute; left:30%; width:35%;"></div></div>
+            </div>
+            <div class="grid grid-cols-[35px_1fr] gap-1 items-center">
+              <div class="font-bold">鈴木</div>
+              <div class="bg-gray-100 relative h-3 rounded"><div class="shift-bar" style="position:absolute; left:40%; width:40%; background:linear-gradient(90deg,#10b981,#14b8a6);"></div></div>
+            </div>
+          </div>
+          <div class="bg-amber-50 rounded p-1 text-[7px] border border-amber-200">
+            <div class="font-bold text-amber-700">📝 メモ付き詳細</div>
+            <div>山田: 09:00-17:00 レジ閉め担当</div>
+            <div>鈴木: 12:00-21:00 新人指導</div>
+          </div>
+        </div>
+      </div>
+      <div class="bg-purple-50 p-3 text-xs rounded-b-lg border border-purple-200 border-t-0">
+        <div class="font-bold text-purple-700 mb-1">こんな時に</div>
+        <ul class="text-gray-700 space-y-0.5 list-disc list-inside">
+          <li>当日の詳細確認</li>
+          <li>引継ぎメモ記入</li>
+          <li>朝礼時の参照</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.6</div>
+</div>
+
+<!-- ============ SLIDE 7: 本部・チェーン対応 ============ -->
+<div class="slide">
+  <div class="slide-header">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">🏢 本部・チェーン店対応</div>
+      <div style="font-size: 13px; color: #6b7280;">FC本部・統括管理者が複数店舗をまとめて管理</div>
+    </div>
+  </div>
+  <div class="flex-1 flex flex-col justify-center">
+    <div class="bg-gradient-to-r from-cyan-50 to-blue-50 rounded-2xl p-6 border border-cyan-200 mb-5">
+      <div class="text-center text-base font-bold text-cyan-800 mb-3">
+        4種類のログインで「権限分離」をシンプルに実現
+      </div>
+      <div class="grid grid-cols-4 gap-3">
+        <div class="bg-white rounded-xl p-3 text-center shadow">
+          <div class="text-3xl mb-1">👔</div>
+          <div class="text-sm font-bold text-blue-700">店舗</div>
+          <div class="text-[10px] text-gray-600 mt-1">自店のシフト閲覧</div>
+        </div>
+        <div class="bg-white rounded-xl p-3 text-center shadow">
+          <div class="text-3xl mb-1">🧑‍💼</div>
+          <div class="text-sm font-bold text-emerald-700">店舗管理者</div>
+          <div class="text-[10px] text-gray-600 mt-1">自店のシフト編集</div>
+        </div>
+        <div class="bg-white rounded-xl p-3 text-center shadow">
+          <div class="text-3xl mb-1">🏢</div>
+          <div class="text-sm font-bold text-purple-700">本部</div>
+          <div class="text-[10px] text-gray-600 mt-1">管轄店舗を観覧</div>
+        </div>
+        <div class="bg-white rounded-xl p-3 text-center shadow">
+          <div class="text-3xl mb-1">⚙️</div>
+          <div class="text-sm font-bold text-pink-700">運営</div>
+          <div class="text-[10px] text-gray-600 mt-1">全テナント管理</div>
+        </div>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-5">
+      <div class="bg-white border-2 border-purple-200 rounded-xl p-4 shadow">
+        <div class="text-base font-bold text-purple-800 mb-2 flex items-center gap-2">
+          <span class="text-2xl">📊</span> 本部から複数店舗を一括観覧
+        </div>
+        <div class="text-xs text-gray-700 mb-2">
+          東京本店・大阪支店・名古屋支店...どこからでもアクセス可能。
+          管轄店舗一覧から「👁観覧」ボタンで瞬時に切替。
+        </div>
+        <div class="bg-purple-50 rounded p-2 text-[10px] font-mono text-purple-700">
+          🏢 ABC ホールディングス (3店舗)<br>
+          &nbsp;&nbsp;・東京本店 [👁観覧]<br>
+          &nbsp;&nbsp;・大阪支店 [👁観覧]<br>
+          &nbsp;&nbsp;・名古屋支店 [👁観覧]
+        </div>
+      </div>
+      <div class="bg-white border-2 border-emerald-200 rounded-xl p-4 shadow">
+        <div class="text-base font-bold text-emerald-800 mb-2 flex items-center gap-2">
+          <span class="text-2xl">🔐</span> 観覧モードは「編集不可」で安全
+        </div>
+        <div class="text-xs text-gray-700 mb-2">
+          本部は閲覧のみで、店舗側のデータを誤って書き換える心配なし。
+          現場の自主性を尊重しつつ、本部はモニタリング。
+        </div>
+        <div class="bg-emerald-50 rounded p-2 text-[10px] text-emerald-700">
+          ✓ 店舗ごとに管轄を細かく設定<br>
+          ✓ FC オーナー・複数店舗運営に最適<br>
+          ✓ 監査ログで観覧履歴も追跡可能
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.7</div>
+</div>
+
+<!-- ============ SLIDE 8: 時間削減効果 グラフ ============ -->
+<div class="slide">
+  <div class="slide-header">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">📉 導入効果: 圧倒的な時間削減</div>
+      <div style="font-size: 13px; color: #6b7280;">手動作成 vs ラクシフトAI - 実測ベース比較</div>
+    </div>
+  </div>
+  <div class="flex-1 grid grid-cols-5 gap-4 mt-2">
+    <div class="col-span-3 bg-white rounded-2xl p-4 border border-gray-200 shadow-sm">
+      <div class="text-sm font-bold text-gray-700 mb-2 text-center">月間シフト作成にかかる時間 (分)</div>
+      <canvas id="timeChart" style="max-height:340px;"></canvas>
+    </div>
+    <div class="col-span-2 flex flex-col gap-3">
+      <div class="bg-gradient-to-br from-red-500 to-orange-500 text-white rounded-2xl p-5 shadow-lg">
+        <div class="text-xs opacity-90 mb-1">導入前</div>
+        <div class="text-5xl font-black mb-1">8h</div>
+        <div class="text-xs opacity-90">月平均 480分の手作業<br>(20名規模の場合)</div>
+      </div>
+      <div class="bg-gradient-to-br from-emerald-500 to-teal-500 text-white rounded-2xl p-5 shadow-lg">
+        <div class="text-xs opacity-90 mb-1">導入後</div>
+        <div class="text-5xl font-black mb-1">30min</div>
+        <div class="text-xs opacity-90">AI 生成 3分 + 微調整<br>(月平均 30分以内)</div>
+      </div>
+      <div class="bg-gradient-to-br from-blue-600 to-purple-600 text-white rounded-2xl p-5 shadow-xl text-center">
+        <div class="text-xs opacity-90 mb-1">年間削減時間</div>
+        <div class="text-4xl font-black">90時間</div>
+        <div class="text-xs opacity-90 mt-1">時給 1,500円なら<br>年 13万5千円相当の人件費</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.8</div>
+</div>
+
+<!-- ============ SLIDE 9: スタッフ満足度 比較 ============ -->
+<div class="slide">
+  <div class="slide-header">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">📈 数値で見る、導入前後の変化</div>
+      <div style="font-size: 13px; color: #6b7280;">時間だけじゃない、品質も劇的に向上</div>
+    </div>
+  </div>
+  <div class="flex-1 grid grid-cols-2 gap-5 mt-2">
+    <div class="bg-white rounded-2xl p-4 border border-gray-200 shadow">
+      <div class="text-sm font-bold text-gray-700 mb-2 text-center">5指標の比較レーダー</div>
+      <canvas id="radarChart" style="max-height:280px;"></canvas>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div class="bg-blue-50 rounded-xl p-3 border border-blue-200">
+        <div class="text-xs text-gray-500">スタッフ希望休 反映率</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span class="text-2xl font-black text-blue-600">95%</span>
+          <span class="text-[10px] text-gray-500">(導入前 60%)</span>
+        </div>
+      </div>
+      <div class="bg-emerald-50 rounded-xl p-3 border border-emerald-200">
+        <div class="text-xs text-gray-500">ピーク帯 人員確保率</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span class="text-2xl font-black text-emerald-600">100%</span>
+          <span class="text-[10px] text-gray-500">(導入前 75%)</span>
+        </div>
+      </div>
+      <div class="bg-amber-50 rounded-xl p-3 border border-amber-200">
+        <div class="text-xs text-gray-500">人件費の最適化</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span class="text-2xl font-black text-amber-600">▼12%</span>
+          <span class="text-[10px] text-gray-500">過剰配置削減</span>
+        </div>
+      </div>
+      <div class="bg-purple-50 rounded-xl p-3 border border-purple-200">
+        <div class="text-xs text-gray-500">労基法 遵守率</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span class="text-2xl font-black text-purple-600">100%</span>
+          <span class="text-[10px] text-gray-500">自動チェック</span>
+        </div>
+      </div>
+      <div class="bg-rose-50 rounded-xl p-3 border border-rose-200">
+        <div class="text-xs text-gray-500">スタッフ離職率</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span class="text-2xl font-black text-rose-600">▼30%</span>
+          <span class="text-[10px] text-gray-500">公平配置の効果</span>
+        </div>
+      </div>
+      <div class="bg-cyan-50 rounded-xl p-3 border border-cyan-200">
+        <div class="text-xs text-gray-500">シフト変更対応時間</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span class="text-2xl font-black text-cyan-600">▼80%</span>
+          <span class="text-[10px] text-gray-500">即座に再生成</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.9</div>
+</div>
+
+<!-- ============ SLIDE 10: 料金プラン ============ -->
+<div class="slide">
+  <div class="slide-header">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">💰 シンプルな料金プラン</div>
+      <div style="font-size: 13px; color: #6b7280;">店舗規模に合わせて選べる3プラン (税抜)</div>
+    </div>
+  </div>
+  <div class="flex-1 grid grid-cols-3 gap-5 mt-3">
+    <div class="bg-white border-2 border-gray-200 rounded-2xl p-6 shadow-md flex flex-col">
+      <div class="text-center mb-3">
+        <div class="text-sm text-gray-500 font-bold uppercase tracking-wider">STANDARD</div>
+        <div class="text-2xl font-black text-gray-800 mt-1">スタンダード</div>
+      </div>
+      <div class="text-center mb-4">
+        <span class="text-5xl font-black text-gray-800">¥3,380</span>
+        <span class="text-sm text-gray-500">/月</span>
+      </div>
+      <div class="bg-gray-50 rounded-lg p-3 mb-3 text-center text-xs text-gray-600 font-bold">スタッフ 10名まで</div>
+      <ul class="text-xs space-y-2 flex-1">
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> AIシフト自動生成</li>
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> 月間/週間/1日 切替</li>
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> ドラッグ&ドロップ編集</li>
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> 印刷・PDF出力</li>
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> 個人別シフト表</li>
+        <li class="flex gap-2 text-gray-400"><span>—</span> 本部・複数店舗管理</li>
+      </ul>
+    </div>
+    <div class="bg-gradient-to-br from-blue-600 to-purple-600 text-white rounded-2xl p-6 shadow-2xl flex flex-col relative transform scale-105">
+      <div class="absolute -top-3 right-3 bg-yellow-400 text-gray-800 text-xs font-black px-3 py-1 rounded-full shadow">おすすめ</div>
+      <div class="text-center mb-3">
+        <div class="text-sm opacity-80 font-bold uppercase tracking-wider">PRO</div>
+        <div class="text-2xl font-black mt-1">プロ</div>
+      </div>
+      <div class="text-center mb-4">
+        <span class="text-5xl font-black">¥4,880</span>
+        <span class="text-sm opacity-80">/月</span>
+      </div>
+      <div class="bg-white/20 rounded-lg p-3 mb-3 text-center text-xs font-bold">スタッフ 50名まで</div>
+      <ul class="text-xs space-y-2 flex-1">
+        <li class="flex gap-2"><span class="font-bold">✓</span> Standard 全機能</li>
+        <li class="flex gap-2"><span class="font-bold">✓</span> 本部・複数店舗管理</li>
+        <li class="flex gap-2"><span class="font-bold">✓</span> 人件費分析グラフ</li>
+        <li class="flex gap-2"><span class="font-bold">✓</span> 配置理由 詳細表示</li>
+        <li class="flex gap-2"><span class="font-bold">✓</span> 制約違反レポート</li>
+        <li class="flex gap-2"><span class="font-bold">✓</span> AI監査 (Gemini)</li>
+      </ul>
+    </div>
+    <div class="bg-white border-2 border-gray-200 rounded-2xl p-6 shadow-md flex flex-col">
+      <div class="text-center mb-3">
+        <div class="text-sm text-gray-500 font-bold uppercase tracking-wider">PREMIUM</div>
+        <div class="text-2xl font-black text-gray-800 mt-1">プレミアム</div>
+      </div>
+      <div class="text-center mb-4">
+        <span class="text-5xl font-black text-gray-800">¥9,980</span>
+        <span class="text-sm text-gray-500">/月</span>
+      </div>
+      <div class="bg-gray-50 rounded-lg p-3 mb-3 text-center text-xs text-gray-600 font-bold">スタッフ 無制限</div>
+      <ul class="text-xs space-y-2 flex-1">
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> Pro 全機能</li>
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> 大規模店舗対応 (100名超)</li>
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> 優先サポート</li>
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> 個別カスタマイズ相談</li>
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> SLA保証</li>
+        <li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span> 専任担当者</li>
+      </ul>
+    </div>
+  </div>
+  <div class="text-center text-xs text-gray-500 mt-3">※ 初回 14日間 無料トライアル / 月単位の解約可能</div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.10</div>
+</div>
+
+<!-- ============ SLIDE 11: 導入の流れ ============ -->
+<div class="slide">
+  <div class="slide-header">
+    <img src="../images/rakushift_logo_transparent.png" alt="ロゴ" style="height: 40px;">
+    <div>
+      <div style="font-size: 26px; font-weight: 900; color: #1f2937;">🚀 導入はカンタン3ステップ</div>
+      <div style="font-size: 13px; color: #6b7280;">最短当日からシフト作成スタート可能</div>
+    </div>
+  </div>
+  <div class="flex-1 flex items-center justify-center">
+    <div class="grid grid-cols-3 gap-8 w-full max-w-5xl">
+      <div class="text-center">
+        <div class="w-28 h-28 mx-auto rounded-full gradient-blue flex items-center justify-center text-white mb-4 shadow-xl">
+          <div>
+            <div class="text-4xl font-black">1</div>
+            <div class="text-xs mt-1">DAY 1</div>
+          </div>
+        </div>
+        <div class="text-xl font-bold text-gray-800 mb-2">お申し込み</div>
+        <div class="text-xs text-gray-600 leading-relaxed">
+          Web フォームに必要事項を入力。<br>
+          クレジットカードで決済 (Stripe)。<br>
+          <span class="font-bold text-blue-600">所要時間: 5分</span>
+        </div>
+      </div>
+      <div class="text-center">
+        <div class="w-28 h-28 mx-auto rounded-full gradient-purple flex items-center justify-center text-white mb-4 shadow-xl">
+          <div>
+            <div class="text-4xl font-black">2</div>
+            <div class="text-xs mt-1">DAY 1〜2</div>
+          </div>
+        </div>
+        <div class="text-xl font-bold text-gray-800 mb-2">初期設定</div>
+        <div class="text-xs text-gray-600 leading-relaxed">
+          スタッフ情報・営業時間・<br>
+          必要人員ルールを登録。<br>
+          <span class="font-bold text-purple-600">所要時間: 30分〜1時間</span>
+        </div>
+      </div>
+      <div class="text-center">
+        <div class="w-28 h-28 mx-auto rounded-full gradient-green flex items-center justify-center text-white mb-4 shadow-xl">
+          <div>
+            <div class="text-4xl font-black">3</div>
+            <div class="text-xs mt-1">DAY 2〜</div>
+          </div>
+        </div>
+        <div class="text-xl font-bold text-gray-800 mb-2">運用開始 🎉</div>
+        <div class="text-xs text-gray-600 leading-relaxed">
+          「AIシフト作成」ボタンを<br>
+          クリックするだけ。<br>
+          <span class="font-bold text-emerald-600">所要時間: 3分で生成完了</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-5 mt-4 text-center border border-blue-200">
+    <div class="text-base font-bold text-gray-800 mb-2">
+      🎁 <span class="text-blue-600">14日間 無料トライアル</span> で全機能をお試しいただけます
+    </div>
+    <div class="text-xs text-gray-600">期間中の解約は無料・自動課金開始前にメール通知</div>
+  </div>
+  <div class="slide-footer">ラクシフトAI - サービス紹介資料</div>
+  <div class="slide-number">P.11</div>
+</div>
+
+<!-- ============ SLIDE 12: お問い合わせ ============ -->
+<div class="slide" style="background: linear-gradient(135deg, #1e3a8a 0%, #4c1d95 60%, #831843 100%); color: white;">
+  <div style="position:absolute; top:0; left:0; right:0; bottom:0; opacity:0.05; background-image: radial-gradient(circle at 30% 20%, white 1px, transparent 1px), radial-gradient(circle at 70% 80%, white 1px, transparent 1px); background-size: 50px 50px;"></div>
+  <div style="position:relative; z-index:1; height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;">
+    <img src="../images/rakushift_logo_transparent.png" alt="ラクシフトAI" style="height: 80px; margin-bottom: 24px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));">
+    <div style="font-size: 44px; font-weight: 900; margin-bottom: 12px;">
+      まずは <span style="background:linear-gradient(135deg, #fbbf24, #fb923c); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">無料体験</span> から
+    </div>
+    <div style="font-size: 18px; opacity: 0.9; margin-bottom: 50px;">14日間、すべての機能を無料でお試しいただけます</div>
+    <div class="grid grid-cols-2 gap-6 w-full max-w-4xl">
+      <div style="background:rgba(255,255,255,0.1); backdrop-filter:blur(10px); border-radius:20px; padding:32px; border:1px solid rgba(255,255,255,0.2);">
+        <div style="font-size: 14px; opacity:0.8; margin-bottom:8px;">🌐 Web からお申込み</div>
+        <div style="font-size: 22px; font-weight:900; margin-bottom: 4px;">rakushift-ai.pages.dev</div>
+        <div style="font-size: 12px; opacity:0.7;">トップページから「無料で始める」</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.1); backdrop-filter:blur(10px); border-radius:20px; padding:32px; border:1px solid rgba(255,255,255,0.2);">
+        <div style="font-size: 14px; opacity:0.8; margin-bottom:8px;">📧 お問い合わせフォーム</div>
+        <div style="font-size: 22px; font-weight:900; margin-bottom: 4px;">サイト内フォーム</div>
+        <div style="font-size: 12px; opacity:0.7;">複数店舗・大規模ご相談はこちら</div>
+      </div>
+    </div>
+    <div style="margin-top:50px; padding: 16px 40px; border: 2px solid rgba(251, 191, 36, 0.5); border-radius: 50px; background: rgba(251, 191, 36, 0.1);">
+      <span style="font-size:18px; font-weight: 900;">
+        🎁 今すぐ始めて、来月のシフト作成を <span style="color:#fbbf24;">8時間 → 30分</span> へ
+      </span>
+    </div>
+  </div>
+  <div class="slide-number" style="color: rgba(255,255,255,0.4)">P.12 / END</div>
+</div>
+
+<script>
+// 時間削減棒グラフ
+const ctx1 = document.getElementById('timeChart');
+if (ctx1) {
+  new Chart(ctx1, {
+    type: 'bar',
+    data: {
+      labels: ['10名規模', '20名規模', '50名規模', '100名規模'],
+      datasets: [
+        { label: '導入前 (手動)', data: [240, 480, 900, 1500], backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 8 },
+        { label: '導入後 (ラクシフトAI)', data: [15, 30, 45, 60], backgroundColor: 'rgba(16, 185, 129, 0.8)', borderRadius: 8 }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 12 } } },
+        tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + c.parsed.y + '分 (' + (c.parsed.y/60).toFixed(1) + '時間)' } }
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { callback: (v) => v + '分' }, title: { display: true, text: '月間 シフト作成時間 (分)' } }
+      }
+    }
+  });
+}
+
+// レーダーチャート
+const ctx2 = document.getElementById('radarChart');
+if (ctx2) {
+  new Chart(ctx2, {
+    type: 'radar',
+    data: {
+      labels: ['作成スピード', '希望休 反映', '人員バランス', '労基法 遵守', 'スタッフ満足度'],
+      datasets: [
+        { label: '導入前', data: [20, 60, 50, 60, 50], backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: 'rgb(239, 68, 68)', borderWidth: 2 },
+        { label: 'ラクシフトAI', data: [95, 95, 100, 100, 90], backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: 'rgb(59, 130, 246)', borderWidth: 2 }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { r: { beginAtZero: true, max: 100, ticks: { stepSize: 20 } } }
+    }
+  });
+}
+</script>
+
+</body>
+</html>
