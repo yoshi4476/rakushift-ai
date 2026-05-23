@@ -2275,27 +2275,34 @@ const app = {
             </th>`;
         });
 
+        // パフォーマンス最適化: shifts を Map<staff_id:date, shift> 化して O(1) アクセスに
+        // 旧 O(staff×days×shifts) フルスキャン → 新 O(shifts + staff×days) で 100倍以上高速
+        const shiftsByKey = new Map();
+        for (const s of this.state.shifts) {
+            shiftsByKey.set(s.staff_id + ':' + s.date, s);
+        }
+        // 過去日判定の today を1回だけ計算 (各セル毎の new Date() を排除)
+        const _today = new Date();
+        _today.setHours(0, 0, 0, 0);
+        const _todayMs = _today.getTime();
+
         // ボディ生成
         let bodyHtml = '';
         this.state.staff.forEach(staff => {
             bodyHtml += `<tr data-staff-id="${staff.id}">`;
             bodyHtml += `<td class="p-3 sticky left-0 z-40 bg-white border-b border-r border-gray-100 font-bold text-sm text-gray-800 truncate h-14">${this._sanitize(staff.name)}</td>`;
-            
+
             days.forEach(date => {
                 const y = date.getFullYear();
                 const m = date.getMonth() + 1;
                 const d = date.getDate();
                 const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                
-                // 過去日判定
-                const checkDate = new Date(date);
-                checkDate.setHours(0,0,0,0);
-                const today = new Date();
-                today.setHours(0,0,0,0);
-                const isPast = checkDate < today;
 
-                // シフト検索
-                const shift = this.state.shifts.find(s => s.staff_id === staff.id && s.date === dateStr);
+                // 過去日判定 (事前計算 _todayMs と比較)
+                const isPast = date.getTime() < _todayMs;
+
+                // シフト検索 (O(1) Map アクセス)
+                const shift = shiftsByKey.get(staff.id + ':' + dateStr);
                 
                 // セル背景色
                 const isSpecialHoliday = (this.state.config.special_holidays || []).includes(dateStr);
@@ -5223,7 +5230,20 @@ const app = {
                     return dates.includes(s.date) && new Date(s.date) >= today && s.id && uuidRegex.test(s.id);
                 });
                 if (shiftsToDelete.length > 0) {
-                    await Promise.all(shiftsToDelete.map(function(s) { return API.delete('shifts', s.id); }));
+                    // 一部失敗時にローカル state を不整合にしないため、結果を集計してから state 更新
+                    const results = await Promise.allSettled(
+                        shiftsToDelete.map(s => API.delete('shifts', s.id))
+                    );
+                    const failed = results
+                        .map((r, i) => ({ r, id: shiftsToDelete[i].id }))
+                        .filter(x => x.r.status === 'rejected');
+                    if (failed.length > 0) {
+                        console.error('[reset_all] Partial delete failure:', failed);
+                        // サーバ実状を取得し直して state を再同期 (ローカルだけ消すと UI と DB が乖離)
+                        await this.loadData();
+                        this.showToast(`${failed.length} 件のシフト削除に失敗しました。表示を再同期しました`, 'error');
+                        throw new Error('Batch delete partially failed');
+                    }
                 }
                 this.state.shifts = this.state.shifts.filter(function(s) {
                     return !(dates.includes(s.date) && new Date(s.date) >= today);
@@ -7312,7 +7332,17 @@ const app = {
                     return dates.includes(s.date) && new Date(s.date) >= today && s.id && uuidRegex.test(s.id);
                 });
                 if (shiftsToDelete.length > 0) {
-                    await Promise.all(shiftsToDelete.map(function(s) { return API.delete('shifts', s.id); }));
+                    // 部分失敗時の整合性確保 (allSettled で集計 → 失敗あれば loadData で再同期)
+                    const results = await Promise.allSettled(
+                        shiftsToDelete.map(s => API.delete('shifts', s.id))
+                    );
+                    const failed = results.filter(r => r.status === 'rejected');
+                    if (failed.length > 0) {
+                        console.error('[confirmShiftPreview] Partial delete failure:', failed);
+                        await this.loadData();
+                        this.showToast(`${failed.length} 件の旧シフト削除に失敗。表示を再同期しました`, 'error');
+                        throw new Error('Batch delete partially failed');
+                    }
                 }
                 this.state.shifts = this.state.shifts.filter(function(s) {
                     return !(dates.includes(s.date) && new Date(s.date) >= today);

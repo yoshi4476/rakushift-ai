@@ -23,13 +23,39 @@ const GanttDrag = {
     HANDLE_WIDTH: 8, // px for resize handle area
     SNAP_MINUTES: 15,
 
+    // 多重 init() 防止 + destroy() 用に bind 済みハンドラを保持
+    _bound: null,
+
     init() {
-        document.addEventListener('mousedown', this._onMouseDown.bind(this));
-        document.addEventListener('mousemove', this._onMouseMove.bind(this));
-        document.addEventListener('mouseup', this._onMouseUp.bind(this));
-        document.addEventListener('touchstart', this._onTouchStart.bind(this), { passive: false });
-        document.addEventListener('touchmove', this._onTouchMove.bind(this), { passive: false });
-        document.addEventListener('touchend', this._onTouchEnd.bind(this));
+        if (this._bound) {
+            // 既に init 済 → 重複登録を回避 (リスナー増殖によるメモリリーク・連続発火防止)
+            return;
+        }
+        this._bound = {
+            md: this._onMouseDown.bind(this),
+            mm: this._onMouseMove.bind(this),
+            mu: this._onMouseUp.bind(this),
+            ts: this._onTouchStart.bind(this),
+            tm: this._onTouchMove.bind(this),
+            te: this._onTouchEnd.bind(this),
+        };
+        document.addEventListener('mousedown', this._bound.md);
+        document.addEventListener('mousemove', this._bound.mm);
+        document.addEventListener('mouseup', this._bound.mu);
+        document.addEventListener('touchstart', this._bound.ts, { passive: false });
+        document.addEventListener('touchmove', this._bound.tm, { passive: false });
+        document.addEventListener('touchend', this._bound.te);
+    },
+
+    destroy() {
+        if (!this._bound) return;
+        document.removeEventListener('mousedown', this._bound.md);
+        document.removeEventListener('mousemove', this._bound.mm);
+        document.removeEventListener('mouseup', this._bound.mu);
+        document.removeEventListener('touchstart', this._bound.ts);
+        document.removeEventListener('touchmove', this._bound.tm);
+        document.removeEventListener('touchend', this._bound.te);
+        this._bound = null;
     },
 
     _getBarFromEvent(e) {
