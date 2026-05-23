@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+.env.local
+.env.*.local
 fix_scheduler_midnight.py
 python/scheduler_backup.py
 python/ai_scheduler.py
@@ -15,8 +17,27 @@ deep_debug_full.py
 # Cloudflare Pagesデプロイのためにgitに含めています。
 # Supabase Service Keyなどの機密情報は環境変数で管理してください。
 
+# 一時的なマイグレーション・運用スクリプト
+# (Personal Access Token や DB パスワードを直接扱う作業ファイルは絶対にコミットしない)
+apply-migration.mjs
+check-rls.mjs
+*-temp.mjs
+*-debug.mjs
+*-debug.py
+
+# テスト・スクラッチ (本番リポジトリには不要)
+scratch/
+
+# Node.js
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # Supabase local
 supabase/.temp/
+supabase/.branches/
 
 # OS
 .DS_Store
@@ -25,3 +46,12 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# シークレット系
+*.pem
+*.key
+*.p12
+secrets/
+credentials/
