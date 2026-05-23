@@ -7,10 +7,45 @@ on:
       - 'supabase/migrations/**'
   workflow_dispatch:
 
+# このワークフローは GitHub Secrets を使う:
+#   - SUPABASE_ACCESS_TOKEN   : Supabase Personal Access Token (sbp_...)
+#   - SUPABASE_DB_PASSWORD    : Database password (Supabase Studio → Project Settings → Database)
+#   - SUPABASE_PROJECT_REF    : (任意) ハードコードを避けるなら Secrets 化
+#   - SLACK_WEBHOOK_URL       : (任意) 失敗通知用 (未設定なら通知をスキップ)
+
+permissions:
+  contents: read  # チェックアウトのみ。issue/PR/release 書き込み権限を持たせない
+
 jobs:
-  migrate:
+  # Secret 未設定時はワークフロー全体をスキップして失敗通知を出さない
+  # (運用者が SUPABASE_ACCESS_TOKEN を設定するまでの一時対応)
+  # 既存の migration は Supabase Management API 経由で適用済のため、
+  # このワークフローがスキップされても本番 DB は最新状態に維持される
+  check:
     runs-on: ubuntu-latest
-    
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+    steps:
+      - name: Check secrets configuration
+        id: gate
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::warning::Supabase Secrets (SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD) が未設定のため自動 migration をスキップします。設定方法: https://github.com/${GITHUB_REPOSITORY}/settings/secrets/actions"
+            echo "enabled=false" >> $GITHUB_OUTPUT
+          else
+            echo "enabled=true" >> $GITHUB_OUTPUT
+          fi
+
+  migrate:
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,18 +56,40 @@ jobs:
           version: latest
 
       - name: Link Supabase project
-        run: supabase link --project-ref guuocjilvtmppbqvsxtl
+        id: link
+        run: |
+          REF="${SUPABASE_PROJECT_REF:-guuocjilvtmppbqvsxtl}"
+          supabase link --project-ref "$REF"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
 
       - name: Push database migrations
+        id: migrate
+        # --include-all は付けない: 未適用マイグレーションのみ実行する Supabase CLI のデフォルト動作に任せる
         run: supabase db push
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
       - name: Verify migration status
+        if: success()
         run: supabase migration list
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      - name: Notify Slack on failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+        # jq でペイロードをエスケープ (改行・引用符・特殊文字を含むコンテキストでも安全)
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg text ":rotating_light: Supabase migration FAILED%nCommit: ${COMMIT_SHA}%nRun: ${RUN_URL}" \
+            '{text: ($text | gsub("%n"; "\n"))}')
+          curl -sS -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL" || true
