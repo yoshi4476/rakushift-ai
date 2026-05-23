@@ -1,8 +1,15 @@
 # Rakushift AI - AIシフト管理システム
 
+> 📚 **納品ドキュメント一覧は [docs/README.md](docs/README.md) を参照**
+> 主要文書:
+> - 🛡️ セキュリティ運用: [docs/SECURITY.md](docs/SECURITY.md)
+> - 🚀 デプロイ手順: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+> - 📝 最新変更履歴: [docs/CHANGELOG_SECURITY.md](docs/CHANGELOG_SECURITY.md)
+> - 🤝 引き継ぎ資料: [docs/引き継ぎ資料_完全版.md](docs/引き継ぎ資料_完全版.md)
+
 ## プロジェクト概要
 Rakushift AI（ラクシフトAI）は、飲食店や小売店向けのシフト管理を効率化するWebアプリケーションです。
-管理者は、従業員の希望休、店舗の営業ルール、必要な人員配置要件を設定するだけで、AI（Google Gemini または OpenAI）が最適なシフト表を自動生成します。また、直感的なUIで手動調整も可能です。
+管理者は、従業員の希望休、店舗の営業ルール、必要な人員配置要件を設定するだけで、MILP数理最適化エンジン + AI（Google Gemini）が最適なシフト表を自動生成します。また、直感的なUIで手動調整も可能です。
 
 ## 主な機能
 
@@ -16,7 +23,10 @@ Rakushift AI（ラクシフトAI）は、飲食店や小売店向けのシフト
     - **日曜始まり**: 週次表示およびAI自動作成の「翌週」ロジックは、全て日曜日を起点として統一されています。
     - **高解像度ガントチャート**: 1週間表示時に15分単位のグリッドと目盛りを表示し、細かいシフト状況を一目で確認可能に改善
     - **見やすい表示**: 営業時間をハイライトし、シフトバーの視認性を向上
-    - **期間切り替え**: 月間 / 2週間 / 1週間 の3モードに対応
+    - **期間切り替え**: 月間 / 1週間 / 1日 の3モードに対応 (旧 2週間モードは2026-05-23 廃止)
+    - **年月ドロップダウン**: ヘッダで年・月を直接選択して任意の月へジャンプ
+    - **1日モード詳細表**: 日毎ガント下にメモ付きシフト一覧テーブル (スタッフ・時間・休憩・メモ・編集ボタン)
+    - **シフトメモ**: 各シフトに自由記述メモ (引継ぎ事項・特記事項、最大500字)
     - **過去シフトのグレーアウト**: すでに経過した日程のシフトはグレーアウトされ、視認性が向上しました。
 - **カレンダービュー**: 月間カレンダー形式で表示。曜日ごとの配置確認に便利（スクロール対応）
     - **備考・メモ機能**: 日付ごとに「団体予約あり」「大型発注」などのメモを記録・表示できます。
@@ -24,7 +34,7 @@ Rakushift AI（ラクシフトAI）は、飲食店や小売店向けのシフト
     - 「来週分」や「今月分」を一括生成
     - **過去データの保護**: 分析レポートの整合性を保つため、「リセットして再構築」等の操作を行っても、**本日より前の日付（過去）のシフトは維持され、再生成されません**。
     - **厳格なルール遵守**: スタッフの希望休、勤務日数上限、特定の時間帯の必要人数（`time_staff_req`）を優先
-    - **Gemini 1.5 Flash (推奨)** / GPT-4o 対応
+    - **MILP最適化エンジン (PuLP)** + **Gemini監査** の二段構え
 - **手動調整**: クリック＆ドラッグ感覚で直感的にシフトを追加・編集・削除
 
 ### 3. 店舗設定（Store Settings）
@@ -172,3 +182,41 @@ git push origin main
 - シフト表のPDFエクスポート機能の強化
 - スタッフ向けスマホ専用ビューの最適化
 - 通知機能の実装
+
+---
+
+## 📦 納品物・引き継ぎ
+
+このリポジトリは **納品状態 (2026-05-22 セキュリティハードニング v1 適用済み)** です。
+
+### 引き継ぎを受ける方への作業
+
+#### 🔥 最初の1営業日以内
+1. [docs/README.md](docs/README.md) を開いて全納品文書の一覧を把握
+2. [docs/SECURITY.md](docs/SECURITY.md) で **既知のセキュリティ残課題** を必ず確認
+3. [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) に従って環境変数・GitHub Secrets を新オーナーの認証情報に切替
+4. **未適用なら** Supabase へマイグレーション 22〜29 を適用 (Supabase Studio → SQL Editor)
+   - `supabase/migrations/20260522000000_22_enable_missing_rls.sql`
+   - migration 22〜45 (全 11本) は **2026-05-23 までに本番DB適用済**
+   - 詳細は [docs/CHANGELOG_SECURITY.md](docs/CHANGELOG_SECURITY.md) を参照
+5. Supabase Studio → Database → Advisors で警告ゼロを確認 (2026-05-23 時点で ERROR 0件達成)
+
+#### 📋 最初の1週間以内
+- [docs/引き継ぎ資料_完全版.md](docs/引き継ぎ資料_完全版.md) を全員が読了
+- Stripe / Supabase / Railway / Cloudflare の各管理コンソールに新オーナーがアクセスできることを確認
+- 全シークレットをローテーション ([docs/SECURITY.md §5](docs/SECURITY.md) 参照)
+- [docs/CHANGELOG_SECURITY.md](docs/CHANGELOG_SECURITY.md) 末尾の **動作確認チェックリスト** を実施
+
+#### ⚠️ 経営判断が必要な残課題 (運用前に必ず再評価)
+- **マスターパスワード `'rakushift1234'`** (運営者判断で残存中) の取扱 — `verify_shop_login` / `register_store_to_hq` 内に hardcode
+- **デモテナント `254995332101138`** と本番DBの分離 — 別 Supabase プロジェクトへ移行推奨
+- **API キー (Stripe / Gemini / OpenAI) の DB 平文保存** → Supabase Vault 移行検討
+- **`stripe_webhook_secret` / `smtp_host`** が `platform_settings` 未設定 (Railway env で代用済の場合は問題なし、要確認)
+
+#### ✅ 2026-05-23 完了済 (旧バージョンから引き継いだ場合は不要)
+- ~~admin_password の平文保存 → bcrypt 化~~ → **migration 45 で完了 + 自動 trigger 設置**
+- ~~`config_safe` view から admin_password 除外~~ → **migration 40 で完了**
+- ~~マルチテナント分離バイパス (`*_all` ポリシー)~~ → **migration 43 で完了**
+- ~~RLS UPDATE WITH CHECK 漏れ~~ → **migration 41 で完了**
+- ~~`stripe_subscription_id` UNIQUE 制約~~ → **migration 42 で完了**
+- ~~HQ_ACCOUNTS フロントフォールバック~~ → **2026-05-23 コード削除**
