@@ -14,7 +14,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
-    -- configテーブルのパスワードハッシュを更新
+    -- 1. configテーブルのパスワードハッシュを更新
     UPDATE config
     SET shop_password = crypt(p_new_password, gen_salt('bf'))
     WHERE contract_id = p_contract_id;
@@ -22,6 +22,10 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Contract ID not found: %', p_contract_id;
     END IF;
+
+    -- 2. パスワード変更後、既存の全セッションを無効化（セキュリティ対策）
+    DELETE FROM auth_sessions
+    WHERE organization_id = (SELECT organization_id FROM config WHERE contract_id = p_contract_id);
 END;
 $$;
 

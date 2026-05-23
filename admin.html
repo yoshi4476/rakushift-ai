@@ -8,6 +8,17 @@
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net;
+        style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com;
+        font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:;
+        img-src 'self' data: blob: https:;
+        connect-src 'self' https://*.supabase.co https://*.up.railway.app https://*.railway.app https://api.stripe.com;
+        frame-ancestors 'none';
+        base-uri 'self';
+        form-action 'self';
+    ">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -328,6 +339,13 @@
                 <button id="tabAnnouncements" onclick="switchTab('announcements')" class="tab-btn">
                     <i class="fas fa-bullhorn mr-1.5"></i>お知らせ管理
                 </button>
+                <button id="tabInquiries" onclick="switchTab('inquiries')" class="tab-btn">
+                    <i class="fas fa-envelope-open-text mr-1.5"></i>お問い合わせ
+                    <span id="inquiryBadge" class="ml-1 text-xs bg-red-500 text-white rounded-full px-1.5 hidden">0</span>
+                </button>
+                <button id="tabHqadmins" onclick="switchTab('hqadmins')" class="tab-btn">
+                    <i class="fas fa-building-user mr-1.5"></i>本部管理
+                </button>
             </div>
 
             <!-- 統計カード -->
@@ -440,6 +458,32 @@
                     </table>
                 </div>
             </div>
+                <!-- 期限切れテナント一覧 (data_deletion_scheduled_at 経過分) -->
+                <div class="card p-4 mt-6">
+                    <div class="flex items-center justify-between mb-3">
+                        <div>
+                            <h2 class="section-title flex items-center gap-2"><i class="fas fa-skull-crossbones text-red-500"></i>削除予定経過テナント</h2>
+                            <p class="section-subtitle">ライセンス停止から6ヶ月経過し物理削除可能なテナント</p>
+                        </div>
+                        <button onclick="loadExpiredTenants()" class="btn-secondary"><i class="fas fa-rotate"></i>更新</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="py-2 px-3 text-xs font-bold text-gray-600">店舗名</th>
+                                    <th class="py-2 px-3 text-xs font-bold text-gray-600">契約ID</th>
+                                    <th class="py-2 px-3 text-xs font-bold text-gray-600">停止日</th>
+                                    <th class="py-2 px-3 text-xs font-bold text-gray-600">削除予定日</th>
+                                    <th class="py-2 px-3 text-xs font-bold text-gray-600 text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="expiredTenantsTbody">
+                                <tr><td colspan="5" class="py-8 text-center text-gray-400 text-sm">「更新」を押して確認</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div><!-- /panelTenants -->
 
             <!-- ===== 事業収益タブ ===== -->
@@ -470,6 +514,34 @@
                             <p class="text-xs text-gray-500 font-medium">平均単価 (ARPU)</p>
                             <p class="text-3xl font-bold text-purple-600 mt-2 tracking-tight" id="revARPU">¥0</p>
                             <p class="text-[11px] text-gray-400 mt-1">MRR ÷ 契約数</p>
+                        </div>
+                    </div>
+
+                    <!-- 高度KPI: 解約率/トライアル/期間別アクティブ -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background:#fef3c7;color:#b45309;"><i class="fas fa-user-clock"></i></div>
+                            <p class="text-xs text-gray-500 font-medium">月次解約率 (Churn)</p>
+                            <p class="text-3xl font-bold text-amber-600 mt-2 tracking-tight" id="kpiChurn">—</p>
+                            <p class="text-[11px] text-gray-400 mt-1">直近30日の停止 / 契約数</p>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background:#cffafe;color:#0e7490;"><i class="fas fa-users-line"></i></div>
+                            <p class="text-xs text-gray-500 font-medium">直近30日 新規契約</p>
+                            <p class="text-3xl font-bold text-cyan-700 mt-2 tracking-tight" id="kpiNewSubs">0</p>
+                            <p class="text-[11px] text-gray-400 mt-1">created_at >= 30日前</p>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background:#fce7f3;color:#be185d;"><i class="fas fa-rotate"></i></div>
+                            <p class="text-xs text-gray-500 font-medium">継続率 (1-Churn)</p>
+                            <p class="text-3xl font-bold text-pink-700 mt-2 tracking-tight" id="kpiRetention">—</p>
+                            <p class="text-[11px] text-gray-400 mt-1">アクティブ維持率</p>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background:#ecfccb;color:#4d7c0f;"><i class="fas fa-bolt"></i></div>
+                            <p class="text-xs text-gray-500 font-medium">LTV (見込)</p>
+                            <p class="text-3xl font-bold text-lime-700 mt-2 tracking-tight" id="kpiLTV">¥0</p>
+                            <p class="text-[11px] text-gray-400 mt-1">ARPU ÷ Churn率</p>
                         </div>
                     </div>
 
@@ -613,6 +685,191 @@
                 </div>
             </div><!-- /panelAnnouncements -->
 
+            <!-- ===== お問い合わせ管理タブ ===== -->
+            <div id="panelInquiries" class="hidden panel">
+                <div class="space-y-6">
+                    <div class="card p-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <h2 class="section-title">法人お問い合わせ</h2>
+                                <p class="section-subtitle">問い合わせフォームから受信した法人企業の対応管理</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <select id="inquiryStatusFilter" class="select w-auto" onchange="loadInquiries()">
+                                    <option value="">すべて</option>
+                                    <option value="new">新規</option>
+                                    <option value="contacted">連絡済</option>
+                                    <option value="in_progress">対応中</option>
+                                    <option value="closed">完了</option>
+                                    <option value="spam">スパム</option>
+                                </select>
+                                <button onclick="loadInquiries()" class="btn-secondary"><i class="fas fa-rotate"></i>更新</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">状態</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">会社</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">担当者</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">連絡先</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">予定規模</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">受信日</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600 text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inquiriesTbody">
+                                <tr><td colspan="7" class="py-12 text-center text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>読み込み中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div><!-- /panelInquiries -->
+
+            <!-- ===== 本部管理タブ ===== -->
+            <div id="panelHqadmins" class="hidden panel">
+                <div class="space-y-6">
+                    <div class="card p-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <h2 class="section-title">本部アカウント管理</h2>
+                                <p class="section-subtitle">顧客企業ごとに本部アカウントを発行し、観覧可能な店舗を限定します</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button onclick="openCreateHqAdminModal()" class="btn-primary"><i class="fas fa-plus"></i>本部アカウント発行</button>
+                                <button onclick="loadHqAdmins()" class="btn-secondary"><i class="fas fa-rotate"></i>更新</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">種別</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">ログインID</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">会社名</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">連絡先</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600 text-center">管轄店舗数</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600">作成日</th>
+                                    <th class="py-3 px-3 text-xs font-bold text-gray-600 text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hqAdminsTbody">
+                                <tr><td colspan="7" class="py-12 text-center text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>読み込み中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div><!-- /panelHqadmins -->
+
+            <!-- 本部発行モーダル -->
+            <div id="createHqAdminModal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onclick="if(event.target===this) this.classList.add('hidden')">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                    <div class="p-5 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-purple-50">
+                        <h3 class="font-bold text-lg text-gray-900"><i class="fas fa-building-user text-indigo-600 mr-2"></i>本部アカウント発行</h3>
+                        <button onclick="document.getElementById('createHqAdminModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-700"><i class="fas fa-xmark text-xl"></i></button>
+                    </div>
+                    <div class="p-6 overflow-y-auto flex-1 space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">ログインID <span class="text-red-500">*</span></label>
+                            <input id="newHqLoginId" type="text" maxlength="32" pattern="[A-Za-z0-9_\-]+" class="input w-full" placeholder="例: hq_company_a">
+                            <p class="text-[11px] text-gray-400 mt-1">半角英数字/_/-、3文字以上</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">パスワード <span class="text-red-500">*</span></label>
+                            <div class="flex gap-2">
+                                <input id="newHqPassword" type="text" maxlength="64" class="input w-full font-mono" placeholder="8文字以上">
+                                <button onclick="genHqRandomPassword()" class="btn-secondary whitespace-nowrap"><i class="fas fa-shuffle"></i>自動生成</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">会社名</label>
+                            <input id="newHqCompany" type="text" class="input w-full" placeholder="例: 株式会社○○ホールディングス">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">担当者メール</label>
+                            <input id="newHqEmail" type="email" class="input w-full" placeholder="担当者の連絡先メール">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">管轄する店舗 (複数選択可)</label>
+                            <div id="newHqScopeList" class="border border-gray-200 rounded-lg max-h-64 overflow-y-auto p-2 bg-gray-50 text-sm">
+                                <p class="text-gray-400 text-xs p-2">読み込み中...</p>
+                            </div>
+                            <p class="text-[11px] text-gray-400 mt-1">この本部が観覧・管理できる店舗を限定します。1つも選ばないと「管轄なし」になります</p>
+                        </div>
+                    </div>
+                    <div class="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
+                        <button onclick="document.getElementById('createHqAdminModal').classList.add('hidden')" class="px-4 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-lg">キャンセル</button>
+                        <button onclick="submitCreateHqAdmin()" class="btn-primary"><i class="fas fa-save"></i>発行する</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 本部スコープ編集モーダル -->
+            <div id="editHqScopeModal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onclick="if(event.target===this) this.classList.add('hidden')">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                    <div class="p-5 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50">
+                        <h3 class="font-bold text-lg text-gray-900"><i class="fas fa-pen text-amber-600 mr-2"></i>管轄店舗の編集</h3>
+                        <button onclick="document.getElementById('editHqScopeModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-700"><i class="fas fa-xmark text-xl"></i></button>
+                    </div>
+                    <div class="p-6 overflow-y-auto flex-1">
+                        <p class="text-sm text-gray-700 mb-3">本部: <span id="editHqLoginIdDisplay" class="font-mono font-bold"></span></p>
+                        <div id="editHqScopeList" class="border border-gray-200 rounded-lg max-h-72 overflow-y-auto p-2 bg-gray-50 text-sm"></div>
+                    </div>
+                    <div class="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
+                        <button onclick="document.getElementById('editHqScopeModal').classList.add('hidden')" class="px-4 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-lg">キャンセル</button>
+                        <button onclick="submitEditHqScope()" class="btn-primary"><i class="fas fa-save"></i>保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 店舗ID + 管理者パスワードで管轄登録モーダル -->
+            <div id="registerStoreModal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onclick="if(event.target===this) this.classList.add('hidden')">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
+                    <div class="p-5 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-amber-500 to-orange-500 text-white">
+                        <h3 class="font-bold text-lg"><i class="fas fa-plus-circle mr-2"></i>店舗を管轄に登録</h3>
+                        <button onclick="document.getElementById('registerStoreModal').classList.add('hidden')" class="text-white/80 hover:text-white"><i class="fas fa-xmark text-xl"></i></button>
+                    </div>
+                    <div class="p-6 overflow-y-auto flex-1 space-y-4">
+                        <div class="text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            <i class="fas fa-building text-amber-600 mr-1"></i>登録先本部: <span id="regModalHqName" class="font-bold text-gray-900">-</span>
+                            <div class="text-xs text-gray-500 mt-0.5">ログインID: <span id="regModalHqLoginId" class="font-mono"></span></div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">店舗ID <span class="text-red-500">*</span></label>
+                            <input id="regModalContractId" type="text" inputmode="numeric" maxlength="20" placeholder="例: 254995332101138" class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono focus:ring-2 focus:ring-amber-300 focus:outline-none">
+                            <p class="text-[11px] text-gray-400 mt-1">15桁の数字 (テナント発行時に発行されたID)</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">管理者パスワード <span class="text-red-500">*</span></label>
+                            <input id="regModalPassword" type="password" maxlength="64" placeholder="店舗側で設定されたパスワード" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-300 focus:outline-none">
+                            <p class="text-[11px] text-gray-400 mt-1">運営マスターパスワード (rakushift1234) でも認証可</p>
+                        </div>
+                    </div>
+                    <div class="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
+                        <button onclick="document.getElementById('registerStoreModal').classList.add('hidden')" class="px-4 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-lg">キャンセル</button>
+                        <button onclick="submitRegisterStoreModal()" class="inline-flex items-center gap-1.5 px-5 py-2 text-sm bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg hover:from-amber-600 hover:to-orange-600 font-bold shadow-md"><i class="fas fa-plus-circle"></i>登録する</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- お問い合わせ詳細モーダル -->
+            <div id="inquiryDetailModal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onclick="if(event.target===this) this.classList.add('hidden')">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                    <div class="p-5 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-purple-50">
+                        <h3 class="font-bold text-lg text-gray-900"><i class="fas fa-envelope-open-text text-indigo-600 mr-2"></i>お問い合わせ詳細</h3>
+                        <button onclick="document.getElementById('inquiryDetailModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-700"><i class="fas fa-xmark text-xl"></i></button>
+                    </div>
+                    <div id="inquiryDetailBody" class="p-6 overflow-y-auto flex-1"></div>
+                    <div class="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
+                        <button onclick="document.getElementById('inquiryDetailModal').classList.add('hidden')" class="px-4 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-lg">閉じる</button>
+                        <button onclick="saveInquiryDetail()" class="btn-primary"><i class="fas fa-save"></i>更新</button>
+                    </div>
+                </div>
+            </div>
+
     </div>
 
     <!-- ========== 紹介者新規/編集モーダル ========== -->
@@ -719,8 +976,8 @@
                 <div class="bg-purple-50/50 border border-purple-100 rounded-xl p-3">
                     <h4 class="text-xs font-bold text-purple-700 uppercase tracking-wider mb-2"><i class="fas fa-tags mr-1"></i>プラン選択</h4>
                     <select id="newTenantPlan" onchange="onTenantPlanChange()" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm">
-                        <option value="standard">Standard - 2,980円/月 (10名まで)</option>
-                        <option value="pro" selected>Pro - 4,480円/月 (50名まで)</option>
+                        <option value="standard">Standard - 3,380円/月 (10名まで)</option>
+                        <option value="pro" selected>Pro - 4,880円/月 (50名まで)</option>
                         <option value="premium">Premium - 9,980円/月 (無制限)</option>
                         <option value="oem">OEM代理店 - 4,000円/月 (手動管理・Stripe非連動)</option>
                     </select>
@@ -773,10 +1030,14 @@
                 <!-- 紹介者 -->
                 <div class="bg-amber-50/50 border border-amber-100 rounded-xl p-3">
                     <h4 class="text-xs font-bold text-amber-700 uppercase tracking-wider mb-2"><i class="fas fa-handshake mr-1"></i>紹介者</h4>
-                    <label class="block text-xs font-medium text-gray-700 mb-1">紹介者コード <span id="newReferrerLabel" class="text-xs text-gray-400">（任意）</span></label>
-                    <select id="newReferrerCode" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm">
-                        <option value="">— 紹介者なし —</option>
-                    </select>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">紹介者コード <span id="newReferrerLabel" class="text-xs text-gray-400">（任意・手入力可）</span></label>
+                    <input id="newReferrerCode" type="text" list="referrerOptions" maxlength="64" autocomplete="off"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                        placeholder="例: ABC123 (空欄なら紹介者なし)">
+                    <datalist id="referrerOptions">
+                        <!-- populateReferrerDropdown() で動的追加 -->
+                    </datalist>
+                    <p class="text-[11px] text-gray-400 mt-1">既存コードはサジェスト表示されます。新規コードを直接入力も可</p>
                 </div>
 
                 <!-- 注意 -->
@@ -828,7 +1089,8 @@
         </div>
     </div>
 
-    <script src="js/config.js"></script>
+    <!-- ?v= はキャッシュ破棄用バージョン。リリース時に scripts/bump-version.ps1 で一括更新 -->
+    <script src="js/config.js?v=202605230112"></script>
     <script>
     // =========================================================
     // 運営管理画面 JavaScript
@@ -842,13 +1104,23 @@
 
     // --- Supabase RPC呼び出し ---
     async function rpc(functionName, params = {}) {
+        const headers = {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`
+        };
+        // 運営管理者セッションが取得済みなら x-session-id を送る
+        // (サーバ側 get_session_id() / get_session_role() で platform_admin と判定するため)
+        try {
+            const sess = adminSession || JSON.parse(sessionStorage.getItem('platform_admin') || 'null');
+            if (sess && sess.session_id) {
+                headers['x-session-id'] = sess.session_id;
+            }
+        } catch (_) {}
+
         const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'apikey': SUPABASE_KEY,
-                'Authorization': `Bearer ${SUPABASE_KEY}`
-            },
+            headers: headers,
             body: JSON.stringify(params)
         });
         if (!res.ok) {
@@ -934,7 +1206,7 @@
         document.getElementById('statExpired').textContent = expired;
 
         // MRR計算（Stripe決済済み + OEMプラン）
-        const prices = { standard: 2980, pro: 4480, premium: 9980, oem: 4000 };
+        const prices = { standard: 3380, pro: 4880, premium: 9980, oem: 4000 };
         let mrr = 0;
         allTenants.filter(t => t.subscription_status === 'active' && (t.stripe_customer_id || t.stripe_plan === 'oem')).forEach(t => {
             const plan = (t.stripe_plan && t.stripe_plan !== 'free') ? t.stripe_plan : null;
@@ -969,6 +1241,10 @@
                 ? ` <button onclick="confirmDelete('${t.organization_id}', '${escapeHtml(t.name)}')" class="px-2.5 py-1 text-xs bg-gray-50 text-gray-500 rounded-md hover:bg-gray-100 transition font-medium border border-gray-200"><i class="fas fa-trash"></i></button>`
                 : '';
 
+            // 観覧ボタン: 本部が個別テナントの中身 (シフト/スタッフ/設定) を見るために
+            // index.html を別タブで開く。as_hq=<contract_id> で本部観覧モード入り
+            const viewBtn = ` <button onclick="openTenantView('${escapeHtml(t.contract_id)}')" class="px-2.5 py-1 text-xs bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition font-medium border border-blue-100" title="シフト・スタッフ・設定を観覧"><i class="fas fa-eye"></i></button>`;
+
             // プラン表示
             const planBadgeClass = { standard: 'badge-info', pro: 'badge-success', premium: 'badge-purple', oem: 'badge-amber', free: 'badge-neutral' };
             const planNameMap = { standard: 'Standard', pro: 'Pro', premium: 'Premium', oem: 'OEM', free: '未契約' };
@@ -995,7 +1271,7 @@
                     <td class="text-center"><span class="text-sm font-medium text-gray-700">${t.staff_count || 0}</span></td>
                     <td class="text-left text-xs text-gray-500">${createdAt}</td>
                     <td class="text-center whitespace-nowrap">
-                        ${actionBtn}${deleteBtn}
+                        ${viewBtn}${actionBtn}${deleteBtn}
                     </td>
                 </tr>
             `;
@@ -1190,13 +1466,15 @@
     async function populateReferrerDropdown() {
         try {
             const data = await rpc('list_referrers');
-            const sel = document.getElementById('newReferrerCode');
-            sel.innerHTML = '<option value="">— 紹介者なし —</option>'
-                + (data || []).filter(r => r.active).map(r =>
-                    `<option value="${escapeHtml(r.code)}">${escapeHtml(r.code)} - ${escapeHtml(r.name)}</option>`
-                ).join('');
+            const dl = document.getElementById('referrerOptions');
+            if (!dl) return;
+            // datalist は候補補助。手入力は常に可
+            dl.innerHTML = (data || []).filter(r => r.active).map(r =>
+                `<option value="${escapeHtml(r.code)}">${escapeHtml(r.name || '')}</option>`
+            ).join('');
         } catch (e) {
             console.error('紹介者リスト取得失敗', e);
+            // datalist が空のままでも手入力で続行可能
         }
     }
 
@@ -1223,10 +1501,8 @@
                 return;
             }
 
-            // configに顧客情報を保存
-            const SUPA_URL = (typeof RAKUSHIFT_CONFIG !== 'undefined' && RAKUSHIFT_CONFIG.SUPABASE_URL) || SUPABASE_URL;
-            const SUPA_KEY = (typeof RAKUSHIFT_CONFIG !== 'undefined' && RAKUSHIFT_CONFIG.SUPABASE_ANON_KEY) || SUPABASE_KEY;
-            const configBody = {
+            // config に顧客情報を保存 (RLS バイパスのため update_tenant_metadata RPC 経由)
+            const metadata = {
                 customer_email: orgEmail,
                 contact_name: contactName,
                 phone: companyPhone,
@@ -1234,21 +1510,18 @@
                 address: address,
                 referrer_code: referrerCode || null,
             };
-            // OEMプランは手動でstripe_plan + active状態を設定
+            // OEMプランは手動で stripe_plan + active 状態を設定
             if (plan === 'oem') {
-                configBody.stripe_plan = 'oem';
-                configBody.subscription_status = 'active';
+                metadata.stripe_plan = 'oem';
+                metadata.subscription_status = 'active';
             }
-            await fetch(`${SUPA_URL}/rest/v1/config?contract_id=eq.${result.contract_id}`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'apikey': SUPA_KEY,
-                    'Authorization': 'Bearer ' + SUPA_KEY,
-                    'Prefer': 'return=minimal'
-                },
-                body: JSON.stringify(configBody)
+            const metaResult = await rpc('update_tenant_metadata', {
+                p_contract_id: result.contract_id,
+                p_data: metadata
             });
+            if (metaResult && metaResult.success === false) {
+                showToast('テナント作成は成功しましたが顧客情報の保存に失敗しました: ' + (metaResult.message || ''), 'warning');
+            }
 
             const planLabel = { standard: 'Standard', pro: 'Pro', premium: 'Premium', oem: 'OEM代理店' }[plan] || plan;
             const resultEl = document.getElementById('createResult');
@@ -1258,8 +1531,8 @@
                     <div class="mt-2 space-y-1">
                         <p class="text-sm text-green-700">契約ID: <span class="font-mono font-bold text-lg select-all">${result.contract_id}</span></p>
                         <p class="text-sm text-green-700">パスワード: <span class="font-mono font-medium">rakushift1234</span></p>
-                        <p class="text-sm text-green-700">メール: <span class="font-medium">${orgEmail}</span></p>
-                        ${referrerCode ? `<p class="text-sm text-green-700">紹介者コード: <span class="font-mono font-medium">${referrerCode}</span></p>` : ''}
+                        <p class="text-sm text-green-700">メール: <span class="font-medium">${escapeHtml(orgEmail)}</span></p>
+                        ${referrerCode ? `<p class="text-sm text-green-700">紹介者コード: <span class="font-mono font-medium">${escapeHtml(referrerCode)}</span></p>` : ''}
                     </div>
                     <p class="text-xs text-green-600 mt-2"><i class="fas fa-envelope mr-1"></i>テナント一覧の「案内送信」ボタンでログイン情報をメール送信できます</p>
                 </div>
@@ -1274,46 +1547,435 @@
 
     // --- タブ切替 ---
     function switchTab(tab) {
-        const tenants = document.getElementById('panelTenants');
-        const revenue = document.getElementById('panelRevenue');
-        const referrers = document.getElementById('panelReferrers');
-        const announcements = document.getElementById('panelAnnouncements');
-        const btnT = document.getElementById('tabTenants');
-        const btnR = document.getElementById('tabRevenue');
-        const btnRef = document.getElementById('tabReferrers');
-        const btnAnn = document.getElementById('tabAnnouncements');
-        const activeCls = 'px-4 py-2 text-sm font-bold rounded-lg transition bg-indigo-600 text-white';
-        const inactiveCls = 'px-4 py-2 text-sm font-bold rounded-lg transition bg-gray-100 text-gray-600 hover:bg-gray-200';
+        const panels = ['Tenants','Revenue','Referrers','Announcements','Inquiries','Hqadmins'];
+        const activeCls = 'tab-btn active';
+        const inactiveCls = 'tab-btn';
+        panels.forEach(p => {
+            const panel = document.getElementById('panel'+p);
+            const btn = document.getElementById('tab'+p);
+            if (panel) panel.classList.add('hidden');
+            if (btn) btn.className = inactiveCls;
+        });
 
-        tenants.classList.add('hidden');
-        revenue.classList.add('hidden');
-        referrers.classList.add('hidden');
-        announcements.classList.add('hidden');
-        btnT.className = inactiveCls;
-        btnR.className = inactiveCls;
-        btnRef.className = inactiveCls;
-        btnAnn.className = inactiveCls;
+        const panel = document.getElementById('panel' + tab.charAt(0).toUpperCase() + tab.slice(1));
+        const btn = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+        if (panel) panel.classList.remove('hidden');
+        if (btn) btn.className = activeCls;
 
-        if (tab === 'tenants') {
-            tenants.classList.remove('hidden');
-            btnT.className = activeCls;
-        } else if (tab === 'revenue') {
-            revenue.classList.remove('hidden');
-            btnR.className = activeCls;
-            renderRevenue();
-        } else if (tab === 'referrers') {
-            referrers.classList.remove('hidden');
-            btnRef.className = activeCls;
-            loadReferrers();
-        } else if (tab === 'announcements') {
-            announcements.classList.remove('hidden');
-            btnAnn.className = activeCls;
-            loadAnnouncements();
+        if (tab === 'revenue') renderRevenue();
+        else if (tab === 'referrers') loadReferrers();
+        else if (tab === 'announcements') loadAnnouncements();
+        else if (tab === 'inquiries') loadInquiries();
+        else if (tab === 'hqadmins') loadHqAdmins();
+    }
+
+    // --- 本部管理 ---
+    let allHqAdmins = [];
+    async function loadHqAdmins() {
+        const tbody = document.getElementById('hqAdminsTbody');
+        if (!tbody) return;
+        tbody.innerHTML = '<tr><td colspan="7" class="py-12 text-center text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>読み込み中...</td></tr>';
+        try {
+            // テナント名/契約ID を引くために allTenants を先にロード
+            if (!allTenants || !allTenants.length) {
+                try { await loadTenants(); } catch (_) {}
+            }
+            const result = await rpc('list_hq_admins', {});
+            allHqAdmins = Array.isArray(result) ? result : [];
+            if (!allHqAdmins.length) {
+                tbody.innerHTML = '<tr><td colspan="7" class="py-12 text-center text-gray-400">本部アカウントがまだありません</td></tr>';
+                return;
+            }
+            const tenantsById = {};
+            (allTenants || []).forEach(t => { tenantsById[t.organization_id] = t; });
+
+            tbody.innerHTML = allHqAdmins.map(h => {
+                const typeLabel = h.is_global
+                    ? '<span class="badge badge-purple">グローバル (運営者)</span>'
+                    : '<span class="badge badge-info">顧客本部</span>';
+
+                // 管轄テナント (グローバル本部は全件、顧客本部は scope_org_ids)
+                const scopeList = h.is_global
+                    ? (allTenants || [])
+                    : (h.scope_org_ids || []).map(id => tenantsById[id]).filter(Boolean);
+                const scopeCount = h.is_global ? (allTenants || []).length : (h.scope_count || 0);
+                const scopeLabel = h.is_global ? `全 ${scopeCount} 店舗` : `${scopeCount} 店舗`;
+
+                const safeKey = (h.login_id || '').replace(/[^A-Za-z0-9_-]/g, '_');
+                const scopeBtn = scopeCount > 0
+                    ? `<button onclick="toggleHqScopeRow('${safeKey}')" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 border border-indigo-100 font-bold"><i id="hqScopeIcon-${safeKey}" class="fas fa-chevron-right text-[10px]"></i>${scopeLabel}</button>`
+                    : '<span class="text-xs text-gray-400">管轄なし</span>';
+
+                const deleteBtn = h.is_global
+                    ? ''
+                    : `<button onclick="confirmDeleteHqAdmin('${escapeHtml(h.login_id)}')" class="ml-1 px-2.5 py-1 text-xs bg-red-50 text-red-600 rounded-md hover:bg-red-100 border border-red-100" title="本部削除"><i class="fas fa-trash"></i></button>`;
+                const editBtn = h.is_global
+                    ? ''
+                    : `<button onclick='openEditHqScope(${JSON.stringify(h)})' class="ml-1 px-2.5 py-1 text-xs bg-amber-50 text-amber-700 rounded-md hover:bg-amber-100 border border-amber-100" title="管轄を一覧から選択"><i class="fas fa-pen"></i></button>`;
+                // 常設「+ 店舗登録」ボタン (展開不要でモーダル起動)
+                const quickRegBtn = h.is_global
+                    ? ''
+                    : `<button onclick='openRegisterStoreModal(${JSON.stringify(h)})' class="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-md hover:from-amber-600 hover:to-orange-600 font-bold shadow-sm" title="店舗ID + 管理者パスワードで管轄に登録"><i class="fas fa-plus-circle"></i>店舗登録</button>`;
+
+                const scopeDetailHtml = scopeList.length === 0
+                    ? '<p class="text-xs text-gray-400 py-2">管轄テナントがありません</p>'
+                    : `<div class="grid grid-cols-1 md:grid-cols-2 gap-2">${
+                        scopeList.map(t => `
+                            <div class="flex items-center justify-between gap-2 px-3 py-2 bg-white rounded-md border border-gray-200">
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-sm font-bold text-gray-900 truncate">${escapeHtml(t.name||'-')}</div>
+                                    <div class="text-[11px] text-gray-400 font-mono truncate">${escapeHtml(t.contract_id||'')}</div>
+                                </div>
+                                <button onclick="openTenantView('${escapeHtml(t.contract_id)}')" class="px-2.5 py-1 text-xs bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 border border-blue-100 whitespace-nowrap" title="このテナントを観覧"><i class="fas fa-eye"></i></button>
+                            </div>`).join('')
+                    }</div>`;
+
+                // 管轄編集ボタン: 展開エリア内に目立つ位置で配置 (グローバル本部は不要)
+                const addScopeBtnHtml = h.is_global
+                    ? '<span class="text-[11px] text-gray-400">グローバル本部は全店舗が自動的に管轄対象です</span>'
+                    : `<button onclick='openEditHqScope(${JSON.stringify(h)})' class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-md hover:bg-indigo-700 font-bold shadow-sm"><i class="fas fa-list-check"></i>一覧から選択して編集</button>`;
+
+                // 展開エリア内: モーダル起動のショートカットボタン (顧客本部のみ)
+                const registerFormHtml = h.is_global ? '' : `
+                    <div class="mt-3">
+                        <button onclick='openRegisterStoreModal(${JSON.stringify(h)})' class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg hover:from-amber-600 hover:to-orange-600 font-bold shadow-md transition-all">
+                            <i class="fas fa-plus-circle"></i>店舗を新規登録 (店舗ID + 管理者パスワード)
+                        </button>
+                    </div>`;
+
+                return `<tr class="border-b border-gray-100">
+                    <td class="py-3 px-3">${typeLabel}</td>
+                    <td class="py-3 px-3 font-mono text-sm font-bold text-gray-900">${escapeHtml(h.login_id)}</td>
+                    <td class="py-3 px-3 text-sm text-gray-700">${escapeHtml(h.company_name||'-')}</td>
+                    <td class="py-3 px-3 text-xs text-gray-500">${escapeHtml(h.contact_email||'-')}</td>
+                    <td class="py-3 px-3 text-center">${scopeBtn}</td>
+                    <td class="py-3 px-3 text-xs text-gray-500">${h.created_at?formatDate(h.created_at):'-'}</td>
+                    <td class="py-3 px-3 text-center whitespace-nowrap">${quickRegBtn}${editBtn}${deleteBtn}</td>
+                </tr>
+                <tr id="hqScopeRow-${safeKey}" class="hidden bg-indigo-50/30 border-b border-gray-100">
+                    <td colspan="7" class="py-3 px-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-xs font-bold text-indigo-700"><i class="fas fa-building mr-1"></i>管轄テナント一覧 <span class="text-gray-400 font-normal">(登録した店舗はここからいつでも観覧できます)</span></div>
+                            ${addScopeBtnHtml}
+                        </div>
+                        ${scopeDetailHtml}
+                        ${registerFormHtml}
+                    </td>
+                </tr>`;
+            }).join('');
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-red-500">読み込みエラー: ${escapeHtml(e.message||'')}</td></tr>`;
         }
     }
 
+    function toggleHqScopeRow(safeKey) {
+        const row = document.getElementById('hqScopeRow-' + safeKey);
+        const icon = document.getElementById('hqScopeIcon-' + safeKey);
+        if (!row) return;
+        const willShow = row.classList.contains('hidden');
+        row.classList.toggle('hidden');
+        if (icon) {
+            icon.classList.toggle('fa-chevron-right', !willShow);
+            icon.classList.toggle('fa-chevron-down', willShow);
+        }
+    }
+
+    // 「店舗登録」モーダルを開く (本部行のクリック → モーダル直接起動)
+    let _registerStoreTargetHq = null;
+    function openRegisterStoreModal(hq) {
+        if (!hq || hq.is_global) return;
+        _registerStoreTargetHq = hq;
+        document.getElementById('regModalHqName').textContent = hq.company_name || '(会社名未設定)';
+        document.getElementById('regModalHqLoginId').textContent = hq.login_id || '';
+        document.getElementById('regModalContractId').value = '';
+        document.getElementById('regModalPassword').value = '';
+        document.getElementById('registerStoreModal').classList.remove('hidden');
+        setTimeout(() => document.getElementById('regModalContractId')?.focus(), 50);
+    }
+
+    async function submitRegisterStoreModal() {
+        const hq = _registerStoreTargetHq;
+        if (!hq) { showToast('登録先本部が選択されていません', 'error'); return; }
+        const contractId = (document.getElementById('regModalContractId')?.value || '').trim();
+        const password = (document.getElementById('regModalPassword')?.value || '').trim();
+        if (!contractId || !password) {
+            showToast('店舗IDと管理者パスワードを入力してください', 'error');
+            return;
+        }
+        try {
+            const result = await rpc('register_store_to_hq', {
+                p_hq_login_id: hq.login_id,
+                p_contract_id: contractId,
+                p_admin_password: password
+            });
+            if (result && result.success) {
+                showToast(result.message || '登録しました', 'success');
+                document.getElementById('registerStoreModal').classList.add('hidden');
+                _registerStoreTargetHq = null;
+                await loadHqAdmins();
+                // 登録した本部の管轄一覧を自動展開
+                const safeKey = (hq.login_id || '').replace(/[^A-Za-z0-9_-]/g, '_');
+                const row = document.getElementById('hqScopeRow-' + safeKey);
+                if (row && row.classList.contains('hidden')) {
+                    toggleHqScopeRow(safeKey);
+                }
+            } else {
+                showToast((result && result.message) || '登録に失敗しました', 'error');
+            }
+        } catch (e) {
+            showToast('エラー: ' + (e.message || ''), 'error');
+        }
+    }
+
+    function genHqRandomPassword() {
+        const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let pw = '';
+        const arr = new Uint8Array(16);
+        crypto.getRandomValues(arr);
+        for (let i = 0; i < 16; i++) pw += charset[arr[i] % charset.length];
+        document.getElementById('newHqPassword').value = pw;
+    }
+
+    async function openCreateHqAdminModal() {
+        // 既存テナント一覧をロードして、管轄選択リストに表示
+        const listEl = document.getElementById('newHqScopeList');
+        if (!allTenants || !allTenants.length) {
+            await loadTenants();
+        }
+        listEl.innerHTML = (allTenants || []).map(t => `
+            <label class="flex items-center gap-2 py-1.5 px-2 hover:bg-white rounded cursor-pointer text-sm">
+                <input type="checkbox" class="hq-scope-cb" value="${t.organization_id}" data-name="${escapeHtml(t.name||'')}">
+                <span class="font-bold text-gray-900">${escapeHtml(t.name||'')}</span>
+                <span class="text-xs text-gray-400 font-mono">${escapeHtml(t.contract_id||'')}</span>
+            </label>`).join('') || '<p class="text-gray-400 text-xs p-2">テナントがありません</p>';
+        document.getElementById('newHqLoginId').value = '';
+        document.getElementById('newHqPassword').value = '';
+        document.getElementById('newHqCompany').value = '';
+        document.getElementById('newHqEmail').value = '';
+        document.getElementById('createHqAdminModal').classList.remove('hidden');
+    }
+
+    async function submitCreateHqAdmin() {
+        const loginId = document.getElementById('newHqLoginId').value.trim();
+        const password = document.getElementById('newHqPassword').value;
+        const company = document.getElementById('newHqCompany').value.trim();
+        const email = document.getElementById('newHqEmail').value.trim();
+        const scope = Array.from(document.querySelectorAll('.hq-scope-cb:checked')).map(cb => cb.value);
+        if (!loginId || loginId.length < 3) { showToast('login_id は3文字以上', 'error'); return; }
+        if (!/^[A-Za-z0-9_\-]+$/.test(loginId)) { showToast('login_id は半角英数字/_/-のみ', 'error'); return; }
+        if (!password || password.length < 8) { showToast('パスワードは8文字以上', 'error'); return; }
+        if (scope.length === 0) {
+            if (!confirm('管轄店舗を1つも選択していません。\nこの本部はログイン後に「店舗が見えない」状態になります。\n本当に発行しますか？')) {
+                return;
+            }
+        }
+        try {
+            const result = await rpc('create_hq_admin', {
+                p_login_id: loginId,
+                p_password: password,
+                p_company_name: company,
+                p_contact_email: email,
+                p_scope_org_ids: scope,
+                p_is_global: false,
+            });
+            if (result && result.success) {
+                showToast(`本部「${loginId}」を発行しました`, 'success');
+                document.getElementById('createHqAdminModal').classList.add('hidden');
+                loadHqAdmins();
+                // パスワードを画面に控えとして残す (運営者が顧客に伝えるため)
+                alert(`本部アカウント発行完了\n\nログインID: ${loginId}\nパスワード: ${password}\n\n顧客にお伝えください (この画面以降は表示されません)`);
+            } else {
+                showToast(result?.message || '発行に失敗しました', 'error');
+            }
+        } catch (e) {
+            showToast('エラー: ' + e.message, 'error');
+        }
+    }
+
+    function openEditHqScope(hq) {
+        const listEl = document.getElementById('editHqScopeList');
+        const currentScope = new Set(hq.scope_org_ids || []);
+        document.getElementById('editHqLoginIdDisplay').textContent = hq.login_id;
+        document.getElementById('editHqScopeModal').dataset.loginId = hq.login_id;
+        listEl.innerHTML = (allTenants || []).map(t => `
+            <label class="flex items-center gap-2 py-1.5 px-2 hover:bg-white rounded cursor-pointer text-sm">
+                <input type="checkbox" class="hq-edit-scope-cb" value="${t.organization_id}" ${currentScope.has(t.organization_id) ? 'checked' : ''}>
+                <span class="font-bold text-gray-900">${escapeHtml(t.name||'')}</span>
+                <span class="text-xs text-gray-400 font-mono">${escapeHtml(t.contract_id||'')}</span>
+            </label>`).join('') || '<p class="text-gray-400 text-xs p-2">テナントがありません</p>';
+        document.getElementById('editHqScopeModal').classList.remove('hidden');
+    }
+
+    async function submitEditHqScope() {
+        const modal = document.getElementById('editHqScopeModal');
+        const loginId = modal.dataset.loginId;
+        const scope = Array.from(document.querySelectorAll('.hq-edit-scope-cb:checked')).map(cb => cb.value);
+        try {
+            const result = await rpc('update_hq_admin_scope', { p_login_id: loginId, p_scope_org_ids: scope });
+            if (result && result.success) {
+                showToast('スコープを更新しました', 'success');
+                modal.classList.add('hidden');
+                loadHqAdmins();
+            } else {
+                showToast(result?.message || '更新に失敗', 'error');
+            }
+        } catch (e) { showToast('エラー: ' + e.message, 'error'); }
+    }
+
+    async function confirmDeleteHqAdmin(loginId) {
+        if (!confirm(`本部アカウント「${loginId}」を削除しますか？\nこの操作は元に戻せません。`)) return;
+        try {
+            const result = await rpc('delete_hq_admin', { p_login_id: loginId });
+            if (result && result.success) {
+                showToast('削除しました', 'success');
+                loadHqAdmins();
+            } else {
+                showToast(result?.message || '削除に失敗', 'error');
+            }
+        } catch (e) { showToast('エラー: ' + e.message, 'error'); }
+    }
+
+    // --- 削除予定経過テナント一覧 ---
+    async function loadExpiredTenants() {
+        const tbody = document.getElementById('expiredTenantsTbody');
+        if (!tbody) return;
+        tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-gray-400 text-sm"><i class="fas fa-spinner fa-spin mr-2"></i>読み込み中...</td></tr>';
+        try {
+            const result = await rpc('list_expired_tenants', {});
+            const list = Array.isArray(result) ? result : [];
+            if (!list.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-gray-400 text-sm">削除予定経過のテナントはありません</td></tr>';
+                return;
+            }
+            tbody.innerHTML = list.map(t => `
+                <tr class="border-b border-gray-100 hover:bg-red-50">
+                    <td class="py-2 px-3 text-sm font-semibold text-gray-900">${escapeHtml(t.name||'')}</td>
+                    <td class="py-2 px-3 text-xs font-mono text-gray-600">${escapeHtml(t.contract_id||'')}</td>
+                    <td class="py-2 px-3 text-xs text-gray-500">${t.license_suspended_at ? formatDate(t.license_suspended_at) : '-'}</td>
+                    <td class="py-2 px-3 text-xs text-red-600 font-bold">${t.data_deletion_scheduled_at ? formatDate(t.data_deletion_scheduled_at) : '-'}</td>
+                    <td class="py-2 px-3 text-center">
+                        <button onclick="confirmDelete('${t.organization_id}', '${escapeHtml(t.name||'')}')" class="px-2.5 py-1 text-xs bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition font-medium border border-red-200">
+                            <i class="fas fa-trash"></i> 物理削除
+                        </button>
+                    </td>
+                </tr>`).join('');
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-red-500 text-sm">読み込みエラー: ${escapeHtml(e.message||'')}</td></tr>`;
+        }
+    }
+
+    // --- 本部観覧モード: 個別テナントの中身 (シフト/スタッフ/設定) を別タブで開く ---
+    function openTenantView(contractId) {
+        if (!contractId) return;
+        // index.html を別タブで開く。as_hq= で本部観覧モードを伝達
+        const url = `index.html?as_hq=${encodeURIComponent(contractId)}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
+    // --- お問い合わせ管理 ---
+    let allInquiries = [];
+    async function loadInquiries() {
+        const tbody = document.getElementById('inquiriesTbody');
+        if (!tbody) return;
+        tbody.innerHTML = '<tr><td colspan="7" class="py-12 text-center text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>読み込み中...</td></tr>';
+        try {
+            const filter = document.getElementById('inquiryStatusFilter')?.value || '';
+            const result = await rpc('list_inquiries', { p_status: filter || null, p_limit: 200 });
+            allInquiries = Array.isArray(result) ? result : [];
+            renderInquiries(allInquiries);
+            updateInquiryBadge();
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-red-500">読み込みエラー: ${escapeHtml(e.message)}</td></tr>`;
+        }
+    }
+    function updateInquiryBadge() {
+        const newCount = allInquiries.filter(i => i.status === 'new').length;
+        const badge = document.getElementById('inquiryBadge');
+        if (badge) {
+            badge.textContent = newCount;
+            badge.classList.toggle('hidden', newCount === 0);
+        }
+    }
+    function renderInquiries(list) {
+        const tbody = document.getElementById('inquiriesTbody');
+        if (!tbody) return;
+        if (!list.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="py-12 text-center text-gray-400"><i class="fas fa-inbox text-3xl mb-2 block"></i>お問い合わせはまだありません</td></tr>';
+            return;
+        }
+        const statusColors = { new: 'bg-red-50 text-red-700 border-red-200', contacted: 'bg-blue-50 text-blue-700 border-blue-200', in_progress: 'bg-amber-50 text-amber-700 border-amber-200', closed: 'bg-gray-100 text-gray-600 border-gray-200', spam: 'bg-gray-200 text-gray-500 border-gray-300' };
+        const statusLabels = { new: '新規', contacted: '連絡済', in_progress: '対応中', closed: '完了', spam: 'スパム' };
+        tbody.innerHTML = list.map(i => {
+            const total = (i.light_plan_count||0) + (i.standard_plan_count||0) + (i.premium_plan_count||0);
+            return `<tr class="border-b border-gray-100 hover:bg-gray-50">
+                <td class="py-3 px-3"><span class="text-xs px-2 py-1 rounded border ${statusColors[i.status]||'bg-gray-100 text-gray-600 border-gray-200'} font-bold">${statusLabels[i.status]||escapeHtml(i.status)}</span></td>
+                <td class="py-3 px-3 text-sm font-semibold text-gray-900">${escapeHtml(i.company_name||'')}</td>
+                <td class="py-3 px-3 text-sm text-gray-700">${escapeHtml(i.contact_name||'')}</td>
+                <td class="py-3 px-3 text-xs text-gray-500">${escapeHtml(i.phone||'')}<br>${escapeHtml(i.contact_phone||'')}</td>
+                <td class="py-3 px-3 text-xs text-gray-600">${total}店舗予定 (L${i.light_plan_count||0}/S${i.standard_plan_count||0}/P${i.premium_plan_count||0})</td>
+                <td class="py-3 px-3 text-xs text-gray-500">${i.created_at ? formatDate(i.created_at) : '-'}</td>
+                <td class="py-3 px-3 text-center"><button onclick="openInquiryDetail('${i.id}')" class="px-3 py-1 text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 rounded hover:bg-indigo-100"><i class="fas fa-eye"></i> 詳細</button></td>
+            </tr>`;
+        }).join('');
+    }
+    async function openInquiryDetail(id) {
+        try {
+            const result = await rpc('get_inquiry', { p_id: id });
+            if (!result || !result.success) { showToast('取得に失敗しました', 'error'); return; }
+            const i = result.data;
+            const body = document.getElementById('inquiryDetailBody');
+            body.innerHTML = `
+                <div class="space-y-3 text-sm">
+                    <div><span class="font-bold text-gray-600">会社:</span> ${escapeHtml(i.company_name||'')}</div>
+                    <div><span class="font-bold text-gray-600">住所:</span> ${escapeHtml(i.company_address||'')}</div>
+                    <div><span class="font-bold text-gray-600">代表電話:</span> ${escapeHtml(i.phone||'')}</div>
+                    <div><span class="font-bold text-gray-600">担当者:</span> ${escapeHtml(i.contact_name||'')} (${escapeHtml(i.contact_phone||'')})</div>
+                    <div><span class="font-bold text-gray-600">予定プラン:</span> Light ${i.light_plan_count||0} / Standard ${i.standard_plan_count||0} / Premium ${i.premium_plan_count||0}</div>
+                    <div><span class="font-bold text-gray-600">希望日時:</span> ${escapeHtml(i.preferred_days||'')} / ${escapeHtml(i.preferred_time||'')}</div>
+                    <div><span class="font-bold text-gray-600">メッセージ:</span><div class="whitespace-pre-wrap bg-gray-50 p-3 rounded border border-gray-200 mt-1">${escapeHtml(i.message||'')}</div></div>
+                    <hr class="my-3">
+                    <div><label class="block text-xs font-bold text-gray-500 mb-1">ステータス</label>
+                        <select id="inqStatus" class="select w-full">
+                            <option value="new" ${i.status==='new'?'selected':''}>新規</option>
+                            <option value="contacted" ${i.status==='contacted'?'selected':''}>連絡済</option>
+                            <option value="in_progress" ${i.status==='in_progress'?'selected':''}>対応中</option>
+                            <option value="closed" ${i.status==='closed'?'selected':''}>完了</option>
+                            <option value="spam" ${i.status==='spam'?'selected':''}>スパム</option>
+                        </select></div>
+                    <div><label class="block text-xs font-bold text-gray-500 mb-1">担当者</label>
+                        <input id="inqHandledBy" type="text" class="input w-full" value="${escapeHtml(i.handled_by||'')}" placeholder="担当者名"></div>
+                    <div><label class="block text-xs font-bold text-gray-500 mb-1">内部メモ</label>
+                        <textarea id="inqNotes" class="input w-full" rows="3" placeholder="社内向けメモ">${escapeHtml(i.internal_notes||'')}</textarea></div>
+                </div>`;
+            document.getElementById('inquiryDetailModal').dataset.id = id;
+            document.getElementById('inquiryDetailModal').classList.remove('hidden');
+        } catch (e) {
+            showToast('読み込みエラー: ' + e.message, 'error');
+        }
+    }
+    async function saveInquiryDetail() {
+        const modal = document.getElementById('inquiryDetailModal');
+        const id = modal.dataset.id;
+        const payload = {
+            p_id: id,
+            p_status: document.getElementById('inqStatus').value,
+            p_handled_by: document.getElementById('inqHandledBy').value,
+            p_internal_notes: document.getElementById('inqNotes').value,
+        };
+        try {
+            const r = await rpc('update_inquiry', payload);
+            if (r && r.success) {
+                showToast('更新しました', 'success');
+                modal.classList.add('hidden');
+                loadInquiries();
+            } else {
+                showToast(r?.message || '更新に失敗しました', 'error');
+            }
+        } catch (e) { showToast('エラー: ' + e.message, 'error'); }
+    }
+
     // --- 収益計算・表示 ---
-    const PLAN_PRICES = { standard: 2980, pro: 4480, premium: 9980, oem: 4000 };
+    const PLAN_PRICES = { standard: 3380, pro: 4880, premium: 9980, oem: 4000 };
     const PLAN_NAMES = { standard: 'Standard', pro: 'Pro', premium: 'Premium', oem: 'OEM' };
     const PLAN_COLORS = { standard: '#3b82f6', pro: '#22c55e', premium: '#a855f7', oem: '#f59e0b' };
 
@@ -1343,6 +2005,27 @@
         document.getElementById('revPaidCount').textContent = paidCount;
         document.getElementById('revARPU').textContent = '¥' + arpu.toLocaleString();
         document.getElementById('statMRR').textContent = '¥' + mrr.toLocaleString();
+
+        // 高度KPI: 解約率/新規/継続率/LTV
+        try {
+            const now = Date.now();
+            const thirtyDaysAgo = now - 30 * 24 * 3600 * 1000;
+            // 直近30日に停止になったテナント
+            const recentSuspended = allTenants.filter(t => t.license_status === 'suspended'
+                && t.license_suspended_at && new Date(t.license_suspended_at).getTime() >= thirtyDaysAgo);
+            const totalActiveAtStart = paidCount + recentSuspended.length;
+            const churnRate = totalActiveAtStart > 0 ? (recentSuspended.length / totalActiveAtStart) : 0;
+            const retentionRate = 1 - churnRate;
+            const newSubs = allTenants.filter(t => t.created_at && new Date(t.created_at).getTime() >= thirtyDaysAgo).length;
+            const ltv = churnRate > 0 ? Math.round(arpu / churnRate) : (arpu > 0 ? arpu * 24 : 0);
+
+            const fmtPct = v => (v * 100).toFixed(1) + '%';
+            const el = id => document.getElementById(id);
+            if (el('kpiChurn')) el('kpiChurn').textContent = totalActiveAtStart > 0 ? fmtPct(churnRate) : '—';
+            if (el('kpiNewSubs')) el('kpiNewSubs').textContent = newSubs;
+            if (el('kpiRetention')) el('kpiRetention').textContent = totalActiveAtStart > 0 ? fmtPct(retentionRate) : '—';
+            if (el('kpiLTV')) el('kpiLTV').textContent = '¥' + ltv.toLocaleString();
+        } catch (e) { console.warn('KPI calc failed:', e); }
 
         // プラン別内訳
         const breakdown = document.getElementById('revPlanBreakdown');
@@ -1700,8 +2383,8 @@
     const SETTING_LABELS = {
         stripe_secret_key: { label: 'Stripe Secret Key', placeholder: 'sk_live_xxxx', type: 'password' },
         stripe_webhook_secret: { label: 'Stripe Webhookシークレット', placeholder: 'whsec_xxxx', type: 'password' },
-        stripe_price_standard: { label: 'Standard価格ID (2,980円/月)', placeholder: 'price_xxxx', type: 'text' },
-        stripe_price_pro: { label: 'Pro価格ID (4,480円/月)', placeholder: 'price_xxxx', type: 'text' },
+        stripe_price_standard: { label: 'Standard価格ID (3,380円/月)', placeholder: 'price_xxxx', type: 'text' },
+        stripe_price_pro: { label: 'Pro価格ID (4,880円/月)', placeholder: 'price_xxxx', type: 'text' },
         stripe_price_premium: { label: 'Premium価格ID (9,980円/月)', placeholder: 'price_xxxx', type: 'text' },
         gemini_api_key: { label: 'Gemini APIキー', placeholder: 'AIza...', type: 'password' },
         gemini_model: { label: 'Geminiモデル', placeholder: 'gemini-2.0-flash', type: 'text' },
@@ -1747,16 +2430,16 @@
                             ${meta.label}
                             ${statusBadge}
                         </label>
-                        <input type="${meta.type}" id="setting_${s.key}"
+                        <input type="${meta.type}" id="setting_${escapeHtml(s.key)}"
                             class="input font-mono text-sm"
-                            placeholder="${s.has_value ? s.masked_value : meta.placeholder}">
-                        <p class="text-[11px] text-gray-400 mt-1.5">${s.description || ''}</p>
+                            placeholder="${s.has_value ? escapeHtml(s.masked_value) : meta.placeholder}">
+                        <p class="text-[11px] text-gray-400 mt-1.5">${escapeHtml(s.description || '')}</p>
                     </div>
                 `;
             }).join('');
         } catch (e) {
             document.getElementById('settingsGrid').innerHTML =
-                `<p class="text-red-500 text-sm col-span-2">エラー: ${e.message}</p>`;
+                `<p class="text-red-500 text-sm col-span-2">エラー: ${escapeHtml(e.message)}</p>`;
         }
     }
 
@@ -1835,8 +2518,8 @@
                         <label class="block text-xs font-medium text-gray-700 mb-1">タイプ</label>
                         <select id="annType" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm">
                             <option value="info">ℹ️ お知らせ</option>
-                            <option value="promotion">🎁 キャンペーン</option>
-                            <option value="update">🚀 アップデート</option>
+                            <option value="promotion">�� キャンペーン</option>
+                            <option value="update">�� アップデート</option>
                             <option value="warning">⚠️ 注意</option>
                         </select>
                     </div>
@@ -1884,7 +2567,7 @@
             renderAnnouncementsList();
         } catch (e) {
             document.getElementById('announcementsList').innerHTML =
-                `<div class="card p-8 text-center text-red-400"><i class="fas fa-exclamation-circle mr-2"></i>読み込みエラー: ${e.message}</div>`;
+                `<div class="card p-8 text-center text-red-400"><i class="fas fa-exclamation-circle mr-2"></i>読み込みエラー: ${escapeHtml(e.message)}</div>`;
         }
     }
 
@@ -1894,7 +2577,7 @@
             container.innerHTML = `<div class="card p-12 text-center"><div class="text-gray-300 text-5xl mb-4"><i class="fas fa-bullhorn"></i></div><p class="text-gray-500 font-medium">お知らせがありません</p><p class="text-sm text-gray-400 mt-1">「新規お知らせ作成」ボタンから作成してください</p></div>`;
             return;
         }
-        const typeLabels = { info: '📢 お知らせ', promotion: '🎁 キャンペーン', update: '🚀 アップデート', warning: '⚠️ 注意' };
+        const typeLabels = { info: '�� お知らせ', promotion: '�� キャンペーン', update: '�� アップデート', warning: '⚠️ 注意' };
         const typeBadges = { info: 'badge-info', promotion: 'badge-success', update: 'badge-purple', warning: 'badge-warning' };
         container.innerHTML = allAnnouncements.map(a => {
             const isActive = a.is_active && (!a.expires_at || new Date(a.expires_at) > new Date());
@@ -1909,8 +2592,8 @@
                                 ${isActive ? '<span class="badge badge-success">公開中</span>' : '<span class="badge badge-neutral">非公開</span>'}
                                 ${a.priority > 0 ? `<span class="badge badge-amber">優先度: ${a.priority}</span>` : ''}
                             </div>
-                            <h3 class="font-bold text-gray-900 text-base mb-1">${a.title}</h3>
-                            <p class="text-sm text-gray-500 line-clamp-2">${a.content.substring(0, 100)}${a.content.length > 100 ? '...' : ''}</p>
+                            <h3 class="font-bold text-gray-900 text-base mb-1">${escapeHtml(a.title)}</h3>
+                            <p class="text-sm text-gray-500 line-clamp-2">${escapeHtml(a.content.substring(0, 100))}${a.content.length > 100 ? '...' : ''}</p>
                             <div class="flex items-center gap-4 mt-2 text-xs text-gray-400">
                                 <span><i class="fas fa-calendar mr-1"></i>作成: ${dateStr}</span>
                                 <span><i class="fas fa-clock mr-1"></i>期限: ${expiresStr}</span>

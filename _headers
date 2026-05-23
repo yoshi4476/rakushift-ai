@@ -1,0 +1,44 @@
+# Cloudflare Pages キャッシュ制御
+# 機能更新時にお客様の端末でスーパーリロード不要にする設計
+#
+# 設計方針:
+#   - HTML  : no-cache (毎回サーバに更新確認、新版があれば取得)
+#   - JS    : 短期キャッシュ (HTML 内の ?v= で破棄可能)
+#   - 画像  : 1日キャッシュ
+#   - 静的ドキュメント (privacy.html) : 1日キャッシュ
+
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+/admin.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+/
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+
+/privacy.html
+  Cache-Control: public, max-age=86400
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+
+# JS / CSS は HTML 内の ?v=YYYYMMDDx で必ず新版が取得されるため、長めキャッシュOK
+# (ただし ?v= 付与忘れに備えて短めの 1時間)
+/js/*
+  Cache-Control: public, max-age=3600
+  X-Content-Type-Options: nosniff
+
+/images/*
+  Cache-Control: public, max-age=86400
+  X-Content-Type-Options: nosniff

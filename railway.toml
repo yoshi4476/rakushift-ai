@@ -4,6 +4,8 @@ dockerfilePath = "python/Dockerfile"
 watchPatterns = ["python/**", "railway.toml"]
 
 [deploy]
-healthcheckPath = "/"
+# DB 疎通まで確認する /health に変更 (旧 "/" はドキュメント HTML を返すだけで DB 障害を検知できない)
+healthcheckPath = "/health"
+healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
+restartPolicyMaxRetries = 5

@@ -51,15 +51,18 @@ const GanttDrag = {
     _pctToTime(pct) {
         const totalMinutes = (pct / 100) * 24 * 60;
         const snapped = Math.round(totalMinutes / this.SNAP_MINUTES) * this.SNAP_MINUTES;
-        const clamped = Math.max(0, Math.min(snapped, 24 * 60 - this.SNAP_MINUTES));
-        const h = Math.floor(clamped / 60);
+        const clamped = Math.max(0, snapped);
+        let h = Math.floor(clamped / 60);
         const m = clamped % 60;
+        h = h % 24;
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     },
 
-    _timeToPct(timeStr) {
+    _timeToPct(timeStr, startPct = null) {
         const [h, m] = timeStr.split(':').map(Number);
-        return ((h + m / 60) / 24) * 100;
+        let pct = ((h + m / 60) / 24) * 100;
+        if (startPct !== null && pct < startPct) pct += 100;
+        return pct;
     },
 
     _createTooltip() {
@@ -248,8 +251,10 @@ const GanttDrag = {
         } else {
             // Revert visual changes
             if (shift) {
-                this.bar.style.left = this._timeToPct(shift.start_time) + '%';
-                const w = this._timeToPct(shift.end_time) - this._timeToPct(shift.start_time);
+                const startPct = this._timeToPct(shift.start_time);
+                this.bar.style.left = startPct + '%';
+                const endPct = this._timeToPct(shift.end_time, startPct);
+                const w = endPct - startPct;
                 this.bar.style.width = w + '%';
             }
         }

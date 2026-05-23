@@ -32,7 +32,7 @@ CREATE OR REPLACE FUNCTION check_license_status(
 DECLARE
     v_org RECORD;
 BEGIN
-    SELECT o.id, o.license_status, o.subscription_status
+    SELECT o.id, o.license_status, c.subscription_status
     INTO v_org
     FROM organizations o
     JOIN config c ON c.organization_id = o.id

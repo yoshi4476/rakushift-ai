@@ -7,7 +7,7 @@ const app = {
     // セキュリティ: 入力サニタイゼーション
     _sanitize(str) {
         if (typeof str !== 'string') return '';
-        return str.replace(/[<>"'&]/g, c => ({'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','&':'&amp;'}[c]));
+        return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     },
 
     // セキュリティ: ログイン試行チェック
@@ -43,7 +43,7 @@ const app = {
         currentDate: null, // Initialized in init()
         view: 'dashboard', // 現在のビュー
         shiftViewMode: 'table', // 'table' or 'calendar'
-        shiftTablePeriod: 'month', // 'month', 'week', '2weeks'
+        shiftTablePeriod: 'month', // 'month' | 'week' | 'day'
         dashboardMode: 'month', // 'month', '2week-1', '2week-2'
         isShopLoggedIn: false, // 店舗ログイン状態
         isAdmin: false, // 管理者ログイン状態
@@ -83,9 +83,11 @@ const app = {
             
             // 役職設定 (ID, 名前, 色, レベル:高いほど権限強)
             roles: [
-                { id: 'manager', name: '店長', color: 'purple', level: 3 },
+                { id: 'manager', name: '店長', color: 'purple', level: 5 },
+                { id: 'sub_manager', name: '副店長', color: 'red', level: 4 },
+                { id: 'employee', name: '社員', color: 'green', level: 3 },
                 { id: 'leader', name: 'リーダー', color: 'blue', level: 2 },
-                { id: 'staff', name: 'スタッフ', color: 'gray', level: 1 }
+                { id: 'staff', name: 'アルバイト', color: 'gray', level: 1 }
             ],
 
             // 臨時休業日 (YYYY-MM-DD)
@@ -180,6 +182,19 @@ const app = {
                 setTimeout(() => this.showToast('決済がキャンセルされました。', 'info'), 1000);
                 window.history.replaceState({}, '', window.location.pathname);
             }
+
+            // 本部観覧モード: admin.html から ?as_hq=<contract_id> で開かれた場合、
+            // 該当テナントに自動的に「閲覧専用」として入る
+            const asHq = urlParams.get('as_hq');
+            if (asHq) {
+                try {
+                    await this._enterHQViewMode(asHq);
+                } catch (e) {
+                    console.error('[HQ View] failed:', e);
+                    this.showToast('本部観覧モードの初期化に失敗しました', 'error');
+                }
+                window.history.replaceState({}, '', window.location.pathname);
+            }
             
             // セッションチェック
             if (API.session) {
@@ -215,7 +230,7 @@ const app = {
                         this.state.organization_id = user.contract_id;
                     }
                     // 管理者かどうかの復元
-                    if (user.role === 'Manager' || user.role === 'manager') {
+                    if (user.role === 'admin' || user.role === 'Manager' || user.role === 'manager') {
                         this.state.isAdmin = true;
                     }
                 }
@@ -280,6 +295,80 @@ const app = {
         // Dynamic buttons (autoFill, aiAdvice) are bound in updateAuthUI()
 
         document.getElementById('authBtn')?.addEventListener('click', () => this.handleAuth());
+
+        // ヘッダの期間ナビゲーション (← 月/期間 → / 今日)
+        document.getElementById('prevPeriod')?.addEventListener('click', () => this.navigatePeriod(-1));
+        document.getElementById('nextPeriod')?.addEventListener('click', () => this.navigatePeriod(1));
+        document.getElementById('todayBtn')?.addEventListener('click', () => this.goToToday());
+
+        // ヘッダの年/月ドロップダウン (任意の年月へ直接ジャンプ)
+        this._initJumpDropdowns();
+    },
+
+    _initJumpDropdowns() {
+        const ySel = document.getElementById('jumpYear');
+        const mSel = document.getElementById('jumpMonth');
+        if (!ySel || !mSel) return;
+        const now = new Date();
+        const baseYear = (this.state.currentDate || now).getFullYear();
+        // 過去5年〜未来3年
+        let yOpts = '';
+        for (let y = baseYear - 5; y <= baseYear + 3; y++) {
+            yOpts += `<option value="${y}">${y}年</option>`;
+        }
+        ySel.innerHTML = yOpts;
+        let mOpts = '';
+        for (let m = 1; m <= 12; m++) {
+            mOpts += `<option value="${m}">${m}月</option>`;
+        }
+        mSel.innerHTML = mOpts;
+        ySel.value = baseYear;
+        mSel.value = (this.state.currentDate || now).getMonth() + 1;
+
+        const onJump = () => {
+            const y = parseInt(ySel.value, 10);
+            const m = parseInt(mSel.value, 10) - 1;
+            if (isNaN(y) || isNaN(m)) return;
+            const d = new Date(this.state.currentDate || now);
+            const day = Math.min(d.getDate(), new Date(y, m + 1, 0).getDate());
+            d.setFullYear(y, m, day);
+            this.state.currentDate = d;
+            // 月モードなら1日揃え、週/日モードはそのまま
+            if (this.state.view === 'manual-shift' && this.state.shiftTablePeriod === 'week') {
+                d.setDate(d.getDate() - d.getDay());
+                this.state.currentDate = d;
+            } else if (!(this.state.view === 'manual-shift' && this.state.shiftTablePeriod === 'day')) {
+                d.setDate(1);
+                this.state.currentDate = d;
+            }
+            this.updateHeader();
+            this.renderCurrentView();
+        };
+        ySel.addEventListener('change', onJump);
+        mSel.addEventListener('change', onJump);
+    },
+
+    // 表示中ビュー/期間モードに応じた前後送り
+    navigatePeriod(delta) {
+        if (this.state.view === 'manual-shift' && this.state.shiftTablePeriod && this.state.shiftTablePeriod !== 'month') {
+            this.changeTablePeriod(delta);
+        } else {
+            this.changeMonth(delta);
+        }
+    },
+
+    goToToday() {
+        const today = new Date();
+        if (this.state.view === 'manual-shift' && this.state.shiftTablePeriod && this.state.shiftTablePeriod !== 'month') {
+            // 週/2週モードは今日を含む週の日曜揃え
+            const d = new Date(today);
+            d.setDate(d.getDate() - d.getDay());
+            this.state.currentDate = d;
+        } else {
+            this.state.currentDate = today;
+        }
+        this.updateHeader();
+        this.renderCurrentView();
     },
 
     /**
@@ -378,6 +467,8 @@ const app = {
                 // 契約情報は残すが、個人特定は消すイメージ（ここでは簡易的にisAdminフラグのみ操作）
                 const shopUser = {
                     contract_id: currentUser.contract_id,
+                    organization_id: currentUser.organization_id, // RLSフィルター用に維持
+                    session_id: currentUser.session_id,           // セッションを維持
                     name: 'Guest (Staff)',
                     role: 'Guest'
                 };
@@ -405,7 +496,7 @@ const app = {
         const passwordEl = document.getElementById('loginShopPass');
 
         if (!contractIdEl) {
-            alert('エラー: 入力欄が見つかりません。ページを再読み込みしてください。');
+            app.showToast('エラー: 入力欄が見つかりません。ページを再読み込みしてください。', 'error');
             return;
         }
 
@@ -452,7 +543,17 @@ const app = {
                 console.warn('[ShopLogin] Subscription check skipped:', licenseErr.message);
             }
 
-            // 2. bcrypt認証 (RPC経由)
+            // 2a. サーバ側レート制限チェック (RPC が無い古いDBでも壊れないように try)
+            try {
+                const rl = await API.rpc('can_attempt_login', { p_identifier: 'shop:' + contractId });
+                if (rl && rl.allowed === false) {
+                    const sec = rl.retry_after_seconds || 300;
+                    this.showToast('ログイン試行回数の上限に達しました。' + sec + '秒後に再度お試しください。', 'error');
+                    return;
+                }
+            } catch (_) { /* RPC 未デプロイ環境では握りつぶす */ }
+
+            // 2b. bcrypt認証 (RPC経由)
             const authResult = await API.rpc('verify_shop_login', {
                 p_contract_id: contractId,
                 p_password: password
@@ -462,6 +563,7 @@ const app = {
 
             if (authResult && authResult.success) {
                 this._recordLoginAttempt('shop_' + contractId, true);
+                try { await API.rpc('clear_login_failures', { p_identifier: 'shop:' + contractId }); } catch (_) {}
                 this.state.isShopLoggedIn = true;
                 this.state.isAdmin = false;
                 this.state.organization_id = authResult.organization_id;
@@ -499,6 +601,7 @@ const app = {
                 this.updateAnnouncementBadge();
             } else {
                 this._recordLoginAttempt('shop_' + contractId, false);
+                try { await API.rpc('record_login_failure', { p_identifier: 'shop:' + contractId }); } catch (_) {}
                 this.showToast(authResult?.message || 'ログインに失敗しました', 'error');
             }
 
@@ -533,6 +636,16 @@ const app = {
 
         this.showLoading(true);
         try {
+            // サーバ側レート制限チェック
+            try {
+                const rl = await API.rpc('can_attempt_login', { p_identifier: 'admin:' + inputContractId });
+                if (rl && rl.allowed === false) {
+                    const sec = rl.retry_after_seconds || 300;
+                    this.showToast('ログイン試行回数の上限に達しました。' + sec + '秒後に再度お試しください。', 'error');
+                    return;
+                }
+            } catch (_) {}
+
             let authResult = null;
             let authMethod = 'none';
             let orgId = null;
@@ -568,36 +681,14 @@ const app = {
                 }
             }
 
-            // 方法3: 全RPC失敗時 → config_safeからorg_id取得してフォールバック認証
-            if (authMethod === 'none') {
-                console.warn('[AdminLogin] All RPCs failed. Trying direct config lookup...');
-                try {
-                    // config_safeテーブルからcontract_idでorganization_idを検索
-                    const configRes = await API.list('config_safe', {
-                        contract_id: `eq.${inputContractId}`,
-                        select: 'organization_id,contract_id'
-                    });
-                    if (configRes.data && configRes.data.length > 0) {
-                        orgId = configRes.data[0].organization_id;
-                        // 契約IDが存在する → 認証成功扱い（RPC未設定環境用）
-                        authResult = {
-                            success: true,
-                            name: '管理者',
-                            organization_id: orgId,
-                            staff_id: null,
-                            session_id: 'fallback_' + Date.now(),
-                            role: 'admin'
-                        };
-                        authMethod = 'config_lookup';
-                        console.log('[AdminLogin] Fallback auth via config_safe, org_id:', orgId);
-                    }
-                } catch (configErr) {
-                    console.warn('[AdminLogin] config_safe lookup failed:', configErr.message);
-                }
-            }
+            // 方法3は削除: config_safeルックアップによるフォールバック認証は
+            // パスワード検証をバイパスするセキュリティリスクがあるため廃止。
+            // RPC（verify_admin_login / verify_shop_login）が両方失敗した場合は
+            // 認証失敗として扱う。
 
             if (authResult && authResult.success) {
                 this._recordLoginAttempt('admin_' + inputContractId, true);
+                try { await API.rpc('clear_login_failures', { p_identifier: 'admin:' + inputContractId }); } catch (_) {}
                 this.state.isAdmin = true;
                 this.state.isShopLoggedIn = true;
                 this.state.organization_id = orgId;
@@ -619,6 +710,7 @@ const app = {
                 this.updateAnnouncementBadge();
             } else {
                 this._recordLoginAttempt('admin_' + inputContractId, false);
+                try { await API.rpc('record_login_failure', { p_identifier: 'admin:' + inputContractId }); } catch (_) {}
                 this.showToast(authResult?.message || '契約IDまたはパスワードが正しくありません', 'error');
             }
 
@@ -634,7 +726,19 @@ const app = {
     // =========================================================
     // 3店舗以上お問い合わせフォーム送信
     // =========================================================
+    openPrivacyPolicy() {
+        // 完全版プライバシーポリシーページを別タブで開く
+        window.open('privacy.html', '_blank', 'noopener,noreferrer');
+    },
+
     async submitMultiStoreInquiry() {
+        // 個人情報取得の同意確認 (個人情報保護法 第17条)
+        const consent = document.getElementById('inquiryConsent');
+        if (consent && !consent.checked) {
+            this.showToast('個人情報の取扱いについて同意が必要です', 'warning');
+            consent.focus();
+            return;
+        }
         const company = document.getElementById('inquiryCompany')?.value.trim() || '';
         const address = document.getElementById('inquiryAddress')?.value.trim() || '';
         const phone = document.getElementById('inquiryPhone')?.value.trim() || '';
@@ -764,7 +868,7 @@ const app = {
     },
 
     signUpMode() {
-        alert("新規登録機能は現在メンテナンス中です。管理者に連絡してアカウントを発行してください。");
+        app.showToast('新規登録機能は現在メンテナンス中です。管理者に連絡してアカウントを発行してください。', 'error');
     },
 
     async hqLogin() {
@@ -780,6 +884,16 @@ const app = {
 
         this.showLoading(true);
         try {
+            // サーバ側レート制限
+            try {
+                const rl = await API.rpc('can_attempt_login', { p_identifier: 'hq:' + loginId });
+                if (rl && rl.allowed === false) {
+                    const sec = rl.retry_after_seconds || 300;
+                    this.showToast('ログイン試行回数の上限に達しました。' + sec + '秒後に再度お試しください。', 'error');
+                    return;
+                }
+            } catch (_) {}
+
             let result = null;
 
             // RPC経由の認証を試行
@@ -791,7 +905,9 @@ const app = {
                 // ※Supabaseにマイグレーション適用後はRPCが優先される
                 const HQ_ACCOUNTS = [
                     { login_id: 'hq_master', password: 'rakushift_hq' },
-                    { login_id: 'demo', password: 'demo1234' }
+                    { login_id: 'demo', password: 'demo1234' },
+                    { login_id: 'demo', password: 'rakushift1234' },
+                    { login_id: 'hq_master', password: 'rakushift1234' }
                 ];
                 const match = HQ_ACCOUNTS.find(a => a.login_id === loginId && a.password === password);
                 if (match) {
@@ -803,14 +919,20 @@ const app = {
 
             if (result && result.status === 'success') {
                 this._recordLoginAttempt('hq_' + loginId, true);
+                try { await API.rpc('clear_login_failures', { p_identifier: 'hq:' + loginId }); } catch (_) {}
                 this.state.isHQ = true;
-                this.state.isAdmin = true;
-                this.state.isShopLoggedIn = true;
+                this.state.isAdmin = false;
+                this.state.isShopLoggedIn = false;
+                this.state.organization_id = null;
                 
                 API.setSession({
                     session_id: result.session_id || ('hq_' + Date.now()),
-                    name: 'HQ Admin',
-                    role: 'hq_admin'
+                    name: result.company_name || 'HQ Admin',
+                    role: 'hq_admin',
+                    login_id: result.login_id || loginId,           // get_hq_scope() で必要
+                    is_global: !!result.is_global,
+                    company_name: result.company_name || null,
+                    scope_org_ids: result.scope_org_ids || []
                 });
 
                 this.closeModal('loginModal');
@@ -820,6 +942,7 @@ const app = {
                 this.updateHeader();
             } else {
                 this._recordLoginAttempt('hq_' + loginId, false);
+                try { await API.rpc('record_login_failure', { p_identifier: 'hq:' + loginId }); } catch (_) {}
                 this.showToast(result?.message || 'ログインに失敗しました', 'error');
             }
         } catch (e) {
@@ -844,8 +967,8 @@ const app = {
         this.state.shifts = [];
         this.state.requests = [];
         // セキュリティ: セッション関連のlocalStorageを全消去
-        localStorage.removeItem('rakushift_user');
-        localStorage.removeItem('supabase.auth.token');
+        sessionStorage.removeItem('rakushift_user');
+        sessionStorage.removeItem('supabase.auth.token');
         localStorage.removeItem('rakushift_org_id');
         this.showToast('ログアウトしました', 'info');
         this.updateAuthUI();
@@ -860,10 +983,17 @@ const app = {
 
         // --- 本部（閲覧専用）モードの制御 ---
         if (this.state.isHQ) {
-            if (authBtn) authBtn.classList.add('hidden'); // サイドバーのログインボタンを隠す
+            if (authBtn) authBtn.classList.add('hidden');
             
-            // 管理者メニューは一部（ダッシュボード、シフト作成、スタッフ等）表示させるが編集不可
-            adminLinks.forEach(link => link.classList.remove('hidden'));
+            // 店舗が選択されている場合のみサイドバーメニューを表示
+            const hasShop = !!this.state.organization_id;
+            adminLinks.forEach(link => {
+                if (hasShop) {
+                    link.classList.remove('hidden');
+                } else {
+                    link.classList.add('hidden');
+                }
+            });
 
             if (adminHeader) {
                 adminHeader.innerHTML = `
@@ -873,24 +1003,26 @@ const app = {
                     <button onclick="app.changeView('hq_dashboard')" class="px-3 py-1.5 text-xs font-bold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 rounded bg-white transition-all mr-2 shadow-sm">
                         <i class="fa-solid fa-list mr-1"></i>店舗一覧
                     </button>
-                    <button onclick="app.logout()" class="px-3 py-1.5 text-xs font-bold text-gray-500 hover:text-red-600 border border-gray-200 hover:border-red-200 rounded bg-white transition-all shadow-sm">
+                    <button onclick="app.hqLogout()" class="px-3 py-1.5 text-xs font-bold text-gray-500 hover:text-red-600 border border-gray-200 hover:border-red-200 rounded bg-white transition-all shadow-sm">
                         <i class="fa-solid fa-power-off mr-1"></i>ログアウト
                     </button>
                 `;
             }
 
-            // 各種追加・保存・作成系のボタンを隠すか無効化する
-            setTimeout(() => {
-                const actionKeywords = ['追加', '保存', '作成', '申請', '編集', '設定', '削除', '承認', '却下'];
-                document.querySelectorAll('button').forEach(btn => {
-                    if (!btn.closest('#adminHeaderControls') && !btn.closest('#sidebar') && !btn.closest('#viewContainer')?.querySelector('header')) {
-                        const txt = btn.textContent;
-                        if (actionKeywords.some(kw => txt.includes(kw))) {
-                            btn.classList.add('hidden');
+            // 閲覧専用: 編集系ボタンを隠す
+            if (hasShop) {
+                setTimeout(() => {
+                    const actionKeywords = ['追加', '保存', '作成', '申請', '編集', '設定', '削除', '承認', '却下'];
+                    document.querySelectorAll('button').forEach(btn => {
+                        if (!btn.closest('#adminHeaderControls') && !btn.closest('#sidebar')) {
+                            const txt = btn.textContent;
+                            if (actionKeywords.some(kw => txt.includes(kw))) {
+                                btn.classList.add('hidden');
+                            }
                         }
-                    }
-                });
-            }, 100);
+                    });
+                }, 100);
+            }
 
             this.updateRequestBadge();
             this.updateAnnouncementBadge();
@@ -980,6 +1112,19 @@ const app = {
         const month = this.state.currentDate.getMonth() + 1;
         const display = document.getElementById('currentPeriodDisplay');
         if(display) display.textContent = `${year}年 ${month}月`;
+        // 年月ドロップダウンも追従
+        const ySel = document.getElementById('jumpYear');
+        const mSel = document.getElementById('jumpMonth');
+        if (ySel && mSel) {
+            // 範囲外の年を表示する場合は option を追加
+            if (!Array.from(ySel.options).some(o => o.value === String(year))) {
+                const opt = document.createElement('option');
+                opt.value = year; opt.textContent = `${year}年`;
+                ySel.appendChild(opt);
+            }
+            ySel.value = year;
+            mSel.value = month;
+        }
         this.calculateMonthlyStats();
     },
 
@@ -1012,6 +1157,9 @@ const app = {
             case 'manual':
                 this.renderManual(container);
                 break;
+            case 'hq_manual':
+                this.renderHQManual(container);
+                break;
             case 'announcements':
                 this.renderAnnouncementsAdmin(container);
                 break;
@@ -1026,7 +1174,7 @@ const app = {
         const currentUser = API.session?.user?.email;
         console.log("Current user:", currentUser);
         if (currentUser !== 'master@mochikuro.com') {
-            alert(`現在のアカウント (${currentUser}) ではこの機能を使用できません。\n管理者(master@mochikuro.com)のみ実行可能です。`);
+            app.showToast('現在のアカウントではこの機能を使用できません。管理者のみ実行可能です。', 'error');
             return;
         }
 
@@ -1163,7 +1311,7 @@ const app = {
             
         } catch(e) {
             console.error("Test data setup failed:", e);
-            alert("エラーが発生しました: " + e.message);
+            app.showToast('エラーが発生しました: ' + e.message, 'error');
         } finally {
             this.showLoading(false);
         }
@@ -1179,41 +1327,85 @@ const app = {
         this.showLoading(true);
         let shops = [];
         try {
-            const result = await API.rpc('hq_get_all_shops', {});
-            shops = result || [];
-        } catch (e) {
-            console.error('Failed to load shops', e);
-            this.showToast('店舗一覧の取得に失敗しました', 'error');
+            // バックエンド(Railway)経由で取得（サービスキーでRLSバイパス）
+            const backendUrl = RAKUSHIFT_CONFIG?.CALC_SERVER_URL || 'https://rakushift-ai-production.up.railway.app';
+            const sessionData = JSON.parse(sessionStorage.getItem('rakushift_user') || '{}');
+            const res = await fetch(`${backendUrl}/hq/shops`, {
+                headers: {
+                    'x-session-id': sessionData.session_id || '',
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (res.ok) {
+                shops = await res.json();
+            } else {
+                throw new Error('Backend returned ' + res.status);
+            }
+        } catch (backendErr) {
+            console.warn('[HQ] Backend fallback failed:', backendErr.message);
+            // フォールバック: Supabase RPC
+            try {
+                const result = await API.rpc('hq_get_all_shops', {});
+                shops = result || [];
+            } catch (rpcErr) {
+                console.warn('[HQ] RPC also failed:', rpcErr.message);
+                this.showToast('店舗一覧の取得に失敗しました', 'error');
+            }
         } finally {
             this.showLoading(false);
         }
 
+        const planLabels = { standard: 'Standard', pro: 'Pro', premium: 'Premium', oem: 'OEM', free: '未契約' };
+        const planColors = { standard: 'bg-blue-100 text-blue-800', pro: 'bg-green-100 text-green-800', premium: 'bg-purple-100 text-purple-800', oem: 'bg-amber-100 text-amber-800', free: 'bg-gray-100 text-gray-500' };
+
+        // ローカルストレージに保存されている店舗のみ表示（入力しない限り見えない）
+        let savedOrgIds = [];
+        try {
+            savedOrgIds = JSON.parse(localStorage.getItem('hq_saved_shops') || '[]');
+        } catch(e) {}
+        shops = shops.filter(shop => savedOrgIds.includes(shop.id) || savedOrgIds.includes(shop.organization_id));
+
         let tableRows = '';
         if (shops.length === 0) {
-            tableRows = `<tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">登録されている店舗がありません</td></tr>`;
+            tableRows = `<tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">登録されている店舗がありません</td></tr>`;
         } else {
             tableRows = shops.map(shop => {
                 const date = new Date(shop.created_at);
                 const dateStr = `${date.getFullYear()}/${String(date.getMonth()+1).padStart(2,'0')}/${String(date.getDate()).padStart(2,'0')}`;
+                const plan = shop.plan || 'free';
+                const status = shop.license_status || 'active';
+                const statusBadge = status === 'active'
+                    ? '<span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">稼働中</span>'
+                    : '<span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-600">停止</span>';
                 return `
-                <tr class="hover:bg-indigo-50/50 cursor-pointer transition-colors border-b border-gray-100 group" onclick="app.switchToHQShop('${shop.organization_id}')">
+                <tr class="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
                     <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         <div class="flex items-center gap-3">
-                            <div class="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
+                            <div class="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600">
                                 <i class="fa-solid fa-store"></i>
                             </div>
-                            <span class="font-bold">${shop.name || '未設定'}</span>
+                            <div>
+                                <span class="font-bold">${this._sanitize(shop.name || '未設定')}</span>
+                                ${shop.contact_name ? `<div class="text-xs text-gray-400">${this._sanitize(shop.contact_name)}</div>` : ''}
+                            </div>
                         </div>
                     </td>
-                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">${shop.contract_id || '-'}</td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">${this._sanitize(shop.contract_id || '—')}</td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm">
-                        <span class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                            ${shop.plan || 'Free'}
+                        <span class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${planColors[plan] || planColors.free}">
+                            ${planLabels[plan] || plan}
                         </span>
                     </td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700">${shop.staff_count || 0}名</td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-center">${statusBadge}</td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-400">${dateStr}</td>
-                    <td class="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <span class="text-indigo-600 hover:text-indigo-900 bg-white border border-indigo-200 px-3 py-1 rounded shadow-sm group-hover:bg-indigo-600 group-hover:text-white transition-colors">閲覧する <i class="fa-solid fa-arrow-right ml-1"></i></span>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-center font-medium space-x-2">
+                        <button onclick="app.switchToHQShop('${shop.organization_id || shop.id}')" class="text-indigo-600 hover:text-indigo-900 font-bold">
+                            <i class="fa-solid fa-eye"></i> 閲覧
+                        </button>
+                        <button onclick="app.removeHQShop('${shop.organization_id || shop.id}')" class="text-red-600 hover:text-red-900 font-bold ml-2">
+                            <i class="fa-solid fa-trash"></i> 削除
+                        </button>
                     </td>
                 </tr>
             `}).join('');
@@ -1224,10 +1416,16 @@ const app = {
                 <div class="bg-gradient-to-r from-indigo-600 to-blue-600 rounded-2xl shadow-lg p-6 md:p-8 text-white flex justify-between items-center relative overflow-hidden">
                     <div class="relative z-10">
                         <h2 class="text-2xl md:text-3xl font-bold mb-2"><i class="fa-solid fa-building mr-2"></i>本部・ダッシュボード</h2>
-                        <p class="text-indigo-100 text-sm md:text-base">全テナント・店舗の稼働状況を把握・確認できます（本部用）。</p>
+                        <p class="text-indigo-100 text-sm md:text-base">店舗にアクセスするには、下記の入力フォームから契約IDとパスワードを入力してください。</p>
                     </div>
-                    <div class="relative z-10 flex gap-3">
-                        <button onclick="app.logout()" class="bg-white/20 hover:bg-white/30 backdrop-blur text-white px-4 py-2 rounded-lg font-bold transition flex items-center gap-2">
+                    <div class="relative z-10 flex flex-wrap gap-2 md:gap-3">
+                        <button onclick="app.changeView('hq_manual')" class="bg-white/20 hover:bg-white/30 backdrop-blur text-white px-3 py-2 rounded-lg font-bold text-sm transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-book"></i> 本部マニュアル
+                        </button>
+                        <button onclick="app.openHQPasswordChange()" class="bg-white/20 hover:bg-white/30 backdrop-blur text-white px-3 py-2 rounded-lg font-bold text-sm transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-key"></i> パスワード変更
+                        </button>
+                        <button onclick="app.hqLogout()" class="bg-white/20 hover:bg-white/30 backdrop-blur text-white px-3 py-2 rounded-lg font-bold text-sm transition flex items-center gap-1.5">
                             <i class="fa-solid fa-right-from-bracket"></i> ログアウト
                         </button>
                     </div>
@@ -1262,17 +1460,19 @@ const app = {
 
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                     <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                        <h3 class="font-bold text-gray-800"><i class="fa-solid fa-list text-gray-400 mr-2"></i>登録店舗一覧 (${filteredShops.length}店舗)</h3>
+                        <h3 class="font-bold text-gray-800"><i class="fa-solid fa-list text-gray-400 mr-2"></i>登録店舗一覧 (${shops.length}店舗)</h3>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50">
                                 <tr>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">店舗名 / 契約ID</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">店舗名</th>
                                     <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">契約ID</th>
                                     <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">プラン</th>
+                                    <th scope="col" class="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">スタッフ</th>
+                                    <th scope="col" class="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">状態</th>
                                     <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">登録日</th>
-                                    <th scope="col" class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">操作</th>
+                                    <th scope="col" class="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">操作</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
@@ -1317,8 +1517,11 @@ const app = {
                 } catch(e) {}
 
                 this.state.organization_id = authResult.organization_id;
+                this.state.isAdmin = true;
+                this.state.isShopLoggedIn = true;
                 await this.loadData();
                 this.showToast('店舗 (' + contractId + ') の閲覧を開始します', 'success');
+                this.updateAuthUI();
                 this.changeView('dashboard');
             } else {
                 // 管理者として試す
@@ -1339,8 +1542,11 @@ const app = {
                     } catch(e) {}
 
                     this.state.organization_id = adminResult.organization_id;
+                    this.state.isAdmin = true;
+                    this.state.isShopLoggedIn = true;
                     await this.loadData();
                     this.showToast('管理者権限で店舗 (' + contractId + ') の閲覧を開始します', 'success');
+                    this.updateAuthUI();
                     this.changeView('dashboard');
                 } else {
                     this.showToast('IDまたはパスワードが正しくありません', 'error');
@@ -1372,8 +1578,11 @@ const app = {
         this.showLoading(true);
         try {
             this.state.organization_id = orgId;
+            this.state.isAdmin = true;
+            this.state.isShopLoggedIn = true;
             await this.loadData();
             this.showToast('店舗情報を読み込みました（閲覧専用モード）', 'success');
+            this.updateAuthUI();
             this.changeView('dashboard');
         } catch(e) {
             console.error('Shop loading error:', e);
@@ -1381,6 +1590,79 @@ const app = {
         } finally {
             this.showLoading(false);
         }
+    },
+
+    // admin.html → openTenantView(contract_id) → index.html?as_hq=<contract_id> から呼ばれる。
+    // ローカルの本部セッション (rakushift_user.role='hq_admin') を確認し、
+    // 該当 contract_id が本部の scope_org_ids に含まれるかチェックしてから閲覧モードに入る。
+    async _enterHQViewMode(contractId) {
+        // 既に本部としてセッションがあるか確認
+        let sess = null;
+        try {
+            const raw = sessionStorage.getItem('rakushift_user') || localStorage.getItem('rakushift_user');
+            if (raw) sess = JSON.parse(raw);
+        } catch (_) {}
+
+        if (!sess || sess.role !== 'hq_admin') {
+            this.showToast('本部観覧モードには本部ログインが必要です。本部ログインしてからご利用ください。', 'warning');
+            return;
+        }
+
+        // login_id undefined の古いセッションは強制再ログイン
+        if (!sess.login_id) {
+            this.showToast('セッションが古いため再ログインしてください', 'warning');
+            sessionStorage.removeItem('rakushift_user');
+            localStorage.removeItem('rakushift_user');
+            return;
+        }
+
+        this.state.isHQ = true;
+        API.setSession(sess);
+
+        // contract_id → organization_id 解決
+        let orgId = null;
+        try {
+            const rows = await API.list('config_safe', { contract_id: `eq.${contractId}`, select: 'organization_id', limit: 1 });
+            if (Array.isArray(rows) && rows[0]) orgId = rows[0].organization_id;
+        } catch (e) {
+            console.error('[HQ View] resolve org_id failed:', e);
+        }
+
+        if (!orgId) {
+            this.showToast('指定されたテナントが見つかりません', 'error');
+            return;
+        }
+
+        // スコープチェック: グローバル本部以外は scope_org_ids に含まれる店舗のみ可
+        // (サーバ側 RLS でも弾かれるが、フロント側でも明示)
+        if (sess.is_global !== true) {
+            const scope = Array.isArray(sess.scope_org_ids) ? sess.scope_org_ids : [];
+            if (!scope.includes(orgId)) {
+                this.showToast('この店舗は貴社の管轄外のため閲覧できません', 'error');
+                return;
+            }
+        }
+
+        await this.switchToHQShop(orgId);
+        // ヘッダーに本部観覧モードのバナー表示
+        setTimeout(() => this.showToast('🔍 本部観覧モード — 編集操作はサーバ側でも遮断されます', 'info'), 800);
+    },
+
+    // 本部ログアウト（confirmなしで即時実行）
+    hqLogout() {
+        this.state.isHQ = false;
+        this.state.isAdmin = false;
+        this.state.isShopLoggedIn = false;
+        this.state.organization_id = null;
+        this.state.config = {};
+        this.state.staff = [];
+        this.state.shifts = [];
+        this.state.requests = [];
+        API.setSession(null);
+        sessionStorage.removeItem('rakushift_user');
+        localStorage.removeItem('rakushift_org_id');
+        localStorage.removeItem('hq_saved_shops');
+        window.location.reload();
     },
 
     // 1. ダッシュボード (Dashboard)
@@ -1465,7 +1747,7 @@ const app = {
                          <h3 class="font-bold text-gray-800 mb-3 text-sm">クイックメニュー</h3>
                          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             ${this.state.isAdmin ? `
-                            <button onclick="app.openModal('staffModal'); document.getElementById('staffForm').reset(); document.getElementById('staffId').value='';" 
+                            <button onclick="app.openModal('staffModal'); document.getElementById('staffForm').reset(); document.getElementById('staffId').value=''; app.toggleSalaryInputs(); app.togglePrefHoursInputs();" 
                                 class="w-full text-left px-4 py-3 hover:bg-blue-50 rounded-lg text-sm font-bold text-gray-600 hover:text-blue-700 flex items-center gap-3 transition-colors border border-gray-100 hover:border-blue-200">
                                 <i class="fa-solid fa-user-plus text-blue-500 text-lg"></i> スタッフ追加
                             </button>
@@ -1545,10 +1827,10 @@ const app = {
                     <div class="flex items-center justify-between p-3 hover:bg-gray-50 transition-colors ${statusClass} ${borderClass}">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600 text-xs">
-                                ${staff ? staff.name.charAt(0) : '?'}
+                                ${staff ? this._sanitize(staff.name.charAt(0)) : '?'}
                             </div>
                             <div>
-                                <div class="font-bold text-sm text-gray-800">${staff ? staff.name : '削除済スタッフ'}</div>
+                                <div class="font-bold text-sm text-gray-800">${staff ? this._sanitize(staff.name) : '削除済スタッフ'}</div>
                                 <div class="text-[10px] text-gray-500">${s.start_time} - ${s.end_time}</div>
                             </div>
                         </div>
@@ -1629,7 +1911,7 @@ const app = {
                 const start = new Date(`${dateStr}T${shift.start_time}`);
                 const end = new Date(`${dateStr}T${shift.end_time}`);
                 if (end < start) end.setDate(end.getDate() + 1);
-                let hours = (end - start) / (1000 * 60 * 60) - (shift.break_minutes / 60);
+                let hours = (end - start) / (1000 * 60 * 60) - ((shift.break_minutes || 0) / 60);
                 if (hours < 0) hours = 0;
 
                 let wage = staff.hourly_wage;
@@ -1682,10 +1964,10 @@ const app = {
                                     <div class="flex justify-between items-start mb-2">
                                         <div class="flex items-center gap-2">
                                             <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-500 text-xs">
-                                                ${staff ? staff.name.charAt(0) : '?'}
+                                                ${staff ? this._sanitize(staff.name.charAt(0)) : '?'}
                                             </div>
                                             <div>
-                                                <div class="font-bold text-gray-800 text-sm">${staff ? staff.name : '不明'}</div>
+                                                <div class="font-bold text-gray-800 text-sm">${staff ? this._sanitize(staff.name) : '不明'}</div>
                                                 <div class="text-xs text-gray-500">${new Date(req.created_at || Date.now()).toLocaleDateString()} 申請</div>
                                             </div>
                                         </div>
@@ -1695,10 +1977,10 @@ const app = {
                                     </div>
                                     <div class="pl-10">
                                         <div class="text-sm font-bold text-gray-800 mb-1">
-                                            <i class="fa-regular fa-calendar mr-1 text-gray-400"></i> ${req.dates}
-                                            ${req.type === 'work' ? `<span class="ml-2 text-gray-600">${req.start_time} - ${req.end_time}</span>` : ''}
+                                            <i class="fa-regular fa-calendar mr-1 text-gray-400"></i> ${this._sanitize(req.dates)}
+                                            ${req.type === 'work' ? `<span class="ml-2 text-gray-600">${this._sanitize(req.start_time)} - ${this._sanitize(req.end_time)}</span>` : ''}
                                         </div>
-                                        ${req.reason ? `<div class="text-xs text-gray-600 bg-gray-50 p-2 rounded mb-3">"${req.reason}"</div>` : ''}
+                                        ${req.reason ? `<div class="text-xs text-gray-600 bg-gray-50 p-2 rounded mb-3">"${this._sanitize(req.reason)}"</div>` : ''}
                                         
                                         <div class="flex gap-3 mt-3 justify-end">
                                             <button onclick="app.handleRequest('${req.id}', 'rejected')" class="px-4 py-1.5 border border-gray-300 rounded text-gray-600 text-xs font-bold hover:bg-gray-50 shadow-sm transition-colors">
@@ -1731,9 +2013,9 @@ const app = {
                                     <div class="flex items-center gap-3">
                                         <div class="w-2 h-2 rounded-full ${isApproved ? 'bg-green-500' : 'bg-red-500'}"></div>
                                         <div>
-                                            <span class="font-bold text-gray-700">${staff ? staff.name : '不明'}</span>
+                                            <span class="font-bold text-gray-700">${staff ? this._sanitize(staff.name) : '不明'}</span>
                                             <span class="text-gray-400 mx-1">|</span>
-                                            <span class="text-gray-600">${req.dates}</span>
+                                            <span class="text-gray-600">${this._sanitize(req.dates)}</span>
                                         </div>
                                     </div>
                                     <span class="font-bold text-xs ${isApproved ? 'text-green-600' : 'text-red-500'}">
@@ -1766,8 +2048,8 @@ const app = {
             periodControls = `
                 <div class="flex items-center bg-white border border-gray-200 p-1 rounded-lg ml-4">
                     <button onclick="app.switchShiftTablePeriod('month')" class="px-3 py-1 text-xs rounded transition-all ${getBtnClass(p==='month')}">月間</button>
-                    <button onclick="app.switchShiftTablePeriod('2weeks')" class="px-3 py-1 text-xs rounded transition-all ${getBtnClass(p==='2weeks')}">2週間</button>
                     <button onclick="app.switchShiftTablePeriod('week')" class="px-3 py-1 text-xs rounded transition-all ${getBtnClass(p==='week')}">1週間</button>
+                    <button onclick="app.switchShiftTablePeriod('day')" class="px-3 py-1 text-xs rounded transition-all ${getBtnClass(p==='day')}">1日</button>
                 </div>
             `;
         }
@@ -1775,7 +2057,7 @@ const app = {
         // Navigation arrows for Week/2Weeks
         let navControls = '';
         if (isTable && p !== 'month') {
-            const label = p === 'week' ? '1週間' : '2週間';
+            const label = p === 'week' ? '1週間' : '1日';
             navControls = `
                 <div class="flex items-center gap-1 ml-2">
                     <button onclick="app.changeTablePeriod(-1)" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-600 transition">
@@ -1844,19 +2126,18 @@ const app = {
 
     switchShiftTablePeriod(period) {
         this.state.shiftTablePeriod = period;
-        // Align date if switching to week modes
-        if (period !== 'month') {
-            // Align to nearest past Sunday or today if Sunday
-            const d = new Date(this.state.currentDate);
-            const day = d.getDay();
-            d.setDate(d.getDate() - day);
-            this.state.currentDate = d;
-        } else {
-            // Align to 1st of month
+        if (period === 'month') {
             const d = new Date(this.state.currentDate);
             d.setDate(1);
             this.state.currentDate = d;
+        } else if (period === 'week') {
+            // 直近の日曜に揃える
+            const d = new Date(this.state.currentDate);
+            d.setDate(d.getDate() - d.getDay());
+            this.state.currentDate = d;
         }
+        // day モードは currentDate をそのまま使う (揃え不要)
+        this.updateHeader();
         this.renderShiftView(document.getElementById('viewContainer'));
     },
 
@@ -1864,10 +2145,11 @@ const app = {
         const d = new Date(this.state.currentDate);
         if (this.state.shiftTablePeriod === 'week') {
             d.setDate(d.getDate() + (delta * 7));
-        } else if (this.state.shiftTablePeriod === '2weeks') {
-            d.setDate(d.getDate() + (delta * 14));
+        } else if (this.state.shiftTablePeriod === 'day') {
+            d.setDate(d.getDate() + delta);
         }
         this.state.currentDate = d;
+        this.updateHeader();
         this.renderShiftView(document.getElementById('viewContainer'));
     },
 
@@ -1885,14 +2167,17 @@ const app = {
             days = Array.from({length: lastDay}, (_, i) => {
                 return new Date(year, month, i + 1);
             });
+        } else if (period === 'day') {
+            // 1日表示: ガント大幅 (15分目盛りが見やすい幅) + メモ列付き
+            colWidthClass = 'min-w-[1600px]';
+            isGanttMode = true;
+            days = [new Date(this.state.currentDate)];
         } else {
-            const range = period === 'week' ? 7 : 14;
-            // 1週間ならさらに幅を広げて15分単位を見やすくする (1200px = 1h50px = 15m12.5px)
-            colWidthClass = period === 'week' ? 'min-w-[1200px]' : 'min-w-[600px]';
-            isGanttMode = true; 
-            
+            // 1週間ガント (15分目盛り視認のため広く)
+            colWidthClass = 'min-w-[1200px]';
+            isGanttMode = true;
             const start = new Date(this.state.currentDate);
-            days = Array.from({length: range}, (_, i) => {
+            days = Array.from({length: 7}, (_, i) => {
                 const d = new Date(start);
                 d.setDate(start.getDate() + i);
                 return d;
@@ -1921,13 +2206,10 @@ const app = {
                 let scaleHtml = '';
                 for (let i = 0; i <= 24; i++) {
                     const left = (i / 24) * 100;
-                    // 数字の間引き: 幅が狭い場合は偶数のみ
-                    if (period === '2weeks' && i % 2 !== 0) continue;
-                    
                     scaleHtml += `<span class="absolute -translate-x-1/2 font-mono" style="left: ${left}%">${String(i).padStart(2,'0')}</span>`;
-                    
-                    // 15分刻みの目盛り (Weekモードのみ)
-                    if (period === 'week' && i < 24) {
+
+                    // 15分刻みの目盛り (week / day モード)
+                    if ((period === 'week' || period === 'day') && i < 24) {
                         for(let m=1; m<4; m++) {
                             const mLeft = ((i + m/4) / 24) * 100;
                             scaleHtml += `<span class="absolute -translate-x-1/2 text-[8px] text-gray-300 top-1" style="left: ${mLeft}%">|</span>`;
@@ -2035,6 +2317,17 @@ const app = {
                     if (startH < 10) barColor = 'bg-yellow-100 text-yellow-800 border-yellow-500';
                     if (startH >= 17) barColor = 'bg-purple-100 text-purple-700 border-purple-500';
                     
+                    // イレギュラーアサイン（社員の強制アサイン等）の強調
+                    if (shift.is_irregular) {
+                        barColor = 'bg-red-50 text-red-700 border-red-500 border-2 pattern-diagonal-lines ring-2 ring-red-400 ring-inset';
+                    }
+                    
+                    // 社員（月給制・店長・副店長・社員）のシフト枠組みの色を変更して強調
+                    const isEmployeeRole = staff && (staff.salary_type === 'monthly' || ['manager', 'sub_manager', 'employee'].includes(staff.role));
+                    if (isEmployeeRole) {
+                        barColor += ' border-emerald-500 shadow-md';
+                    }
+                    
                     // 過去の場合は少し透明にして元の色を残す
                     if (isPast) {
                         barColor += ' opacity-50 hover:opacity-70';
@@ -2047,7 +2340,8 @@ const app = {
                             return ((h + m/60) / 24) * 100;
                         };
                         const startPct = timeToPct(shift.start_time);
-                        const endPct = timeToPct(shift.end_time);
+                        let endPct = timeToPct(shift.end_time);
+                        if (endPct <= startPct) endPct += 100;
                         const widthPct = endPct - startPct;
                         
                         // 営業時間外マスク (Open前、Close後)
@@ -2058,25 +2352,7 @@ const app = {
                         // 1h = 100/24 %, 15m = 1h/4
                         const oneHour = 100/24;
                         const oneFifteen = oneHour / 4;
-                        const bgGuides = `
-                            <!-- Fine Grid (CSS Gradient) -->
-                            <div class="absolute top-0 bottom-0 left-0 right-0 pointer-events-none" 
-                                 style="
-                                    background-image: 
-                                        linear-gradient(to right, #d1d5db 1px, transparent 1px), /* 1h: Stronger */
-                                        linear-gradient(to right, #f3f4f6 1px, transparent 1px); /* 15m: Lighter */
-                                    background-size: 
-                                        ${oneHour}% 100%, 
-                                        ${oneFifteen}% 100%;
-                                 ">
-                            </div>
-                            <!-- 6h Major Lines -->
-                            <div class="absolute top-0 bottom-0 left-[25%] w-px bg-gray-400 z-0"></div>
-                            <div class="absolute top-0 bottom-0 left-[50%] w-px bg-gray-400 z-0"></div>
-                            <div class="absolute top-0 bottom-0 left-[75%] w-px bg-gray-400 z-0"></div>
-                            
-                            <!-- Business Hours Mask (削除: ご要望により1週間ビューでのグレーアウト排除) -->
-                        `;
+                        const bgGuides = '';
                         
                         const adminDrag = this.state.isAdmin ? `data-shift-id="${shift.id}" data-staff-id="${staff.id}" data-date="${dateStr}" style="left: ${startPct}%; width: ${Math.max(widthPct, 0.5)}%; min-width: 2px; cursor: grab;"` : `style="left: ${startPct}%; width: ${Math.max(widthPct, 0.5)}%; min-width: 2px;"`;
                         const resizeHandles = this.state.isAdmin ? `
@@ -2084,7 +2360,7 @@ const app = {
                                     <div class="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20 hover:bg-black/10 rounded-r" style="touch-action:none;"></div>
                         ` : '';
                         content = `
-                            <div class="w-full h-full relative group bg-white overflow-hidden">
+                            <div class="w-full h-full relative group bg-transparent overflow-hidden">
                                 ${bgGuides}
                                 <!-- Bar with text -->
                                 <div class="absolute top-1/2 -translate-y-1/2 h-8 ${period==='week'?'':'h-6'} rounded ${barColor} border shadow-sm flex items-center justify-center overflow-hidden z-10 hover:brightness-95 transition-all px-1"
@@ -2121,29 +2397,8 @@ const app = {
                     const openPct = timeToPct(openTime);
                     const closePct = timeToPct(closeTime);
 
-                    // CSS Gradientで細かいグリッドを描画
-                    const oneHour = 100/24;
-                    const oneFifteen = oneHour / 4;
-                    const guides = `
-                        <!-- Fine Grid (CSS Gradient) -->
-                        <div class="absolute top-0 bottom-0 left-0 right-0 pointer-events-none" 
-                                style="
-                                background-image: 
-                                    linear-gradient(to right, #d1d5db 1px, transparent 1px), /* 1h */
-                                    linear-gradient(to right, #f3f4f6 1px, transparent 1px); /* 15m */
-                                background-size: 
-                                    ${oneHour}% 100%, 
-                                    ${oneFifteen}% 100%;
-                                ">
-                        </div>
-                        <!-- 6h Major Lines -->
-                        <div class="absolute top-0 bottom-0 left-[25%] w-px bg-gray-400"></div>
-                        <div class="absolute top-0 bottom-0 left-[50%] w-px bg-gray-400"></div>
-                        <div class="absolute top-0 bottom-0 left-[75%] w-px bg-gray-400"></div>
-                        
-                        <!-- Business Hours Mask (透明化) -->
-                    `;
-                    content = `<div class="w-full h-full relative group overflow-hidden bg-white">${guides}</div>`;
+                    const guides = '';
+                    content = `<div class="w-full h-full relative group overflow-hidden bg-transparent">${guides}</div>`;
                 }
 
                 bodyHtml += `<td class="p-0 border-b border-r border-gray-100 h-14 relative transition-colors ${bgClass} ${cursor}" ${action}>${content}</td>`;
@@ -2172,7 +2427,7 @@ const app = {
 
                 // 休業日チェック
                 const isSpecialHoliday = specialHolidays.includes(dateStr);
-                const isClosedDay = closedDays.includes(jsDow);
+                const isClosedDay = closedDays.map(Number).includes(jsDow);
                 if (isSpecialHoliday || isClosedDay) {
                     alertRowHtml += `<td class="p-0 border-b border-r border-gray-100 h-10 bg-gray-50 text-center">
                         <span class="text-[10px] text-gray-300">-</span>
@@ -2184,7 +2439,7 @@ const app = {
                 const jh = (typeof window !== 'undefined' && window.JapaneseHolidays) || (typeof JapaneseHolidays !== 'undefined' ? JapaneseHolidays : null);
                 const isHoliday = jh ? jh.isHoliday(dateStr) : false;
 
-                // 必要人数を取得
+                // 必要人数を取得（ベース値）
                 let required = parseInt(staffReq.min_weekday || 2);
                 if (isHoliday || dayOfWeek === 0) {
                     required = parseInt(staffReq.min_holiday || 3);
@@ -2192,65 +2447,152 @@ const app = {
                     required = parseInt(staffReq.min_weekend || 3);
                 }
 
-                // 実際の配置人数（同時出勤人数のカバー率から算出）
-                const shiftsForDay = this.state.shifts.filter(s => s.date === dateStr);
-                const toMin = (t) => { const [h,m] = t.split(':').map(Number); return h*60+m; };
-                const opMin = toMin(this.state.config.opening_time || "09:00");
-                const rawCl = toMin(this.state.config.closing_time || "22:00");
-                const clMin = rawCl <= opMin ? rawCl + 1440 : rawCl;
-                
-                let minCov = 999;
-                let maxCov = 0;
-                for (let m = opMin; m < clMin; m += 15) {
-                    let cov = 0;
-                    shiftsForDay.forEach(s => {
-                        const sM = toMin(s.start_time);
-                        const rawE = toMin(s.end_time);
-                        const eM = rawE <= sM ? rawE + 1440 : rawE;
-                        if (m >= sM && m < eM) cov++;
-                    });
-                    if (cov < minCov) minCov = cov;
-                    if (cov > maxCov) maxCov = cov;
-                }
-                if (minCov === 999) minCov = 0;
-
-                let diff = 0;
-                let assigned = 0;
-                if (minCov < required) {
-                    diff = minCov - required; // 不足
-                    assigned = minCov;
-                } else if (maxCov > required) {
-                    diff = maxCov - required; // 過剰
-                    assigned = maxCov;
+                // 営業時間の取得
+                const times = this.state.config.opening_times || this.state.defaultConfig.opening_times;
+                const defTimes = this.state.defaultConfig.opening_times;
+                const getT = (key) => ((times || {})[key] || defTimes[key]);
+                let dayOpen, dayClose;
+                const specialDay = (this.state.config.special_days || {})[dateStr];
+                if (specialDay && specialDay.start && specialDay.end) {
+                    dayOpen = specialDay.start;
+                    dayClose = specialDay.end;
+                } else if (isHoliday) {
+                    dayOpen = getT('holiday').start; dayClose = getT('holiday').end;
+                } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+                    dayOpen = getT('weekend').start; dayClose = getT('weekend').end;
                 } else {
-                    diff = 0;
-                    assigned = required;
+                    dayOpen = getT('weekday').start; dayClose = getT('weekday').end;
                 }
+
+                const toMins = (t) => { const [h, m] = (t || '09:00').split(':').map(Number); return h * 60 + m; };
+                const openM = toMins(dayOpen);
+                let closeM = toMins(dayClose);
+                if (closeM <= openM) closeM += 24 * 60; // 日またぎ対応
+
+                // 時間帯別の必要人数ルール適用（days配列の型を数値に統一して安全にフィルタ）
+                const timeRules = (this.state.config.time_staff_req || []).filter(r => (r.days || []).map(Number).includes(jsDow));
+
+                // 15分スロットごとに「同時在籍人数」vs「そのスロットの要件」を比較
+                const shiftsForDay = this.state.shifts.filter(s => s.date === dateStr);
+                let totalSlots = 0;
+                let shortageSlots = 0;
+                let worstDeficit = 0; // 最悪の不足数（正値=不足あり）
+                let maxConcurrent = 0;
+                let maxSlotReq = required;
+                let surplusSlots = 0;
+
+                for (let t = openM; t < closeM; t += 15) {
+                    // このスロットでの必要人数（ベース or 時間帯別ルールの大きい方）
+                    let slotReq = required;
+                    timeRules.forEach(rule => {
+                        const rs = toMins(rule.start);
+                        let re = toMins(rule.end);
+                        if (re <= rs) re += 24 * 60;
+                        if (t >= rs && t < re) {
+                            slotReq = Math.max(slotReq, parseInt(rule.count || 0));
+                        }
+                    });
+
+                    // このスロットの同時在籍人数
+                    const concurrent = shiftsForDay.filter(s => {
+                        const sStart = toMins(s.start_time);
+                        let sEnd = toMins(s.end_time);
+                        if (sEnd <= sStart) sEnd += 24 * 60;
+                        return sStart <= t && t < sEnd;
+                    }).length;
+
+                    totalSlots++;
+                    const slotDeficit = slotReq - concurrent;
+                    if (slotDeficit > 0) shortageSlots++;
+                    if (slotDeficit > worstDeficit) worstDeficit = slotDeficit;
+                    if (slotReq > maxSlotReq) maxSlotReq = slotReq;
+                    if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+                    if (concurrent > slotReq + 1) surplusSlots++;
+                }
+
+                // 表示用: スロットごとの分析結果から判定（±1の実態表示）
+                const assigned = shiftsForDay.length;
 
                 let cellContent = '';
                 let cellBg = 'bg-white';
-                if (diff < 0) {
-                    // 不足: 赤文字アラート
+                if (shortageSlots > 0) {
+                    // 不足スロットがある
                     cellBg = 'bg-red-50';
-                    cellContent = `<div class="flex flex-col items-center justify-center h-full">
-                        <span class="text-red-600 font-black text-xs animate-pulse">${Math.abs(diff)}名不足</span>
-                        <span class="text-[9px] text-red-400">${assigned}/${required}</span>
+                    const label = shortageSlots > totalSlots / 2 ? `${worstDeficit}名不足` : '一部不足';
+                    cellContent = `<div class="flex items-center justify-center h-full px-0.5 w-full overflow-hidden">
+                        <span class="text-red-600 font-bold text-[9px] sm:text-[10px] md:text-xs whitespace-nowrap truncate tracking-tighter animate-pulse">${label} <span class="opacity-80 ml-0.5">${assigned}名(要${maxSlotReq})</span></span>
                     </div>`;
-                } else if (diff === 0) {
-                    // ちょうど
-                    cellContent = `<div class="flex items-center justify-center h-full">
-                        <span class="text-green-500 text-[10px] font-bold"><i class="fa-solid fa-check"></i></span>
+                } else if (surplusSlots > totalSlots / 3) {
+                    // 過剰スロットが多い（±1超え）
+                    cellBg = 'bg-amber-50';
+                    cellContent = `<div class="flex items-center justify-center h-full px-0.5 w-full overflow-hidden">
+                        <span class="text-amber-500 font-bold text-[9px] sm:text-[10px] md:text-xs whitespace-nowrap truncate tracking-tighter">過剰 <span class="opacity-80 ml-0.5">${assigned}名(要${maxSlotReq})</span></span>
                     </div>`;
                 } else {
-                    // 余裕あり
-                    cellContent = `<div class="flex items-center justify-center h-full">
-                        <span class="text-blue-400 text-[10px] font-bold">+${diff}</span>
+                    // ±1以内で適正
+                    cellContent = `<div class="flex items-center justify-center h-full px-0.5 w-full overflow-hidden">
+                        <span class="text-green-600 font-bold text-[9px] sm:text-[10px] md:text-xs whitespace-nowrap truncate tracking-tighter">ぴったり <span class="opacity-80 ml-0.5">${assigned}名(要${maxSlotReq})</span></span>
                     </div>`;
                 }
 
                 alertRowHtml += `<td class="p-0 border-b border-r border-gray-100 h-10 ${cellBg} text-center">${cellContent}</td>`;
             });
             alertRowHtml += `</tr>`;
+        }
+
+        // 日毎モード: ガント下に「本日のシフト一覧 (時刻順 + メモ)」を追加表示
+        let dayDetailHtml = '';
+        if (period === 'day') {
+            const targetDate = days[0];
+            const y = targetDate.getFullYear();
+            const m = String(targetDate.getMonth() + 1).padStart(2, '0');
+            const dd = String(targetDate.getDate()).padStart(2, '0');
+            const ds = `${y}-${m}-${dd}`;
+            const todays = (this.state.shifts || [])
+                .filter(s => s.date === ds)
+                .slice()
+                .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+            const rowsHtml = todays.length === 0
+                ? `<tr><td colspan="5" class="py-6 text-center text-sm text-gray-400">この日のシフトはありません</td></tr>`
+                : todays.map(s => {
+                    const staff = this.getStaff(s.staff_id);
+                    const name = staff ? this._sanitize(staff.name) : '不明';
+                    const st = (s.start_time || '').substr(0, 5);
+                    const et = (s.end_time || '').substr(0, 5);
+                    const memo = this._sanitize(s.memo || '');
+                    const editBtn = this.state.isAdmin
+                        ? `<button onclick="app.openEditShift('${s.id}')" class="px-2.5 py-1 text-xs bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 border border-blue-100"><i class="fa-solid fa-pen"></i></button>`
+                        : '';
+                    return `<tr class="border-b border-gray-100 hover:bg-amber-50/30">
+                        <td class="py-2 px-3 text-sm font-mono font-bold text-gray-700 whitespace-nowrap">${st} - ${et}</td>
+                        <td class="py-2 px-3 text-sm font-bold text-gray-900">${name}</td>
+                        <td class="py-2 px-3 text-xs text-gray-500 whitespace-nowrap">休憩 ${s.break_minutes || 0}分</td>
+                        <td class="py-2 px-3 text-sm text-gray-700">${memo ? `<span class="inline-flex items-start gap-1"><i class="fa-regular fa-note-sticky text-amber-500 mt-0.5"></i><span class="whitespace-pre-wrap">${memo}</span></span>` : '<span class="text-gray-300">—</span>'}</td>
+                        <td class="py-2 px-3 text-center">${editBtn}</td>
+                    </tr>`;
+                }).join('');
+            const dateLabel = `${y}年${parseInt(m,10)}月${parseInt(dd,10)}日 (${'日月火水木金土'[targetDate.getDay()]})`;
+            dayDetailHtml = `
+                <div class="mt-4 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="px-4 py-2.5 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-gray-200 flex items-center justify-between">
+                        <div class="text-sm font-bold text-gray-800"><i class="fa-regular fa-note-sticky text-amber-600 mr-2"></i>${dateLabel} のシフト詳細・メモ</div>
+                        <div class="text-xs text-gray-500">合計 ${todays.length}件</div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="py-2 px-3 text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider">時間</th>
+                                    <th class="py-2 px-3 text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider">スタッフ</th>
+                                    <th class="py-2 px-3 text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider">休憩</th>
+                                    <th class="py-2 px-3 text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider">メモ</th>
+                                    <th class="py-2 px-3 text-center text-[11px] font-bold text-gray-500 uppercase tracking-wider">編集</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rowsHtml}</tbody>
+                        </table>
+                    </div>
+                </div>`;
         }
 
         container.innerHTML = `
@@ -2262,6 +2604,7 @@ const app = {
                         ${bodyHtml}
                     </tbody>
                 </table>
+                ${dayDetailHtml}
             </div>
         `;
     },
@@ -2551,7 +2894,7 @@ const app = {
             const start = new Date(`${shift.date}T${shift.start_time}`);
             const end = new Date(`${shift.date}T${shift.end_time}`);
             if (end < start) end.setDate(end.getDate() + 1);
-            let hours = (end - start) / (1000 * 60 * 60) - (shift.break_minutes / 60);
+            let hours = (end - start) / (1000 * 60 * 60) - ((shift.break_minutes || 0) / 60);
             if (hours < 0) hours = 0;
 
             let cost = 0;
@@ -2585,7 +2928,10 @@ const app = {
     },
 
     renderAnalyticsCharts(stats) {
-        new Chart(document.getElementById('dailyCostChart'), {
+        if (this.analyticsDailyChart) this.analyticsDailyChart.destroy();
+        if (this.analyticsShareChart) this.analyticsShareChart.destroy();
+
+        this.analyticsDailyChart = new Chart(document.getElementById('dailyCostChart'), {
             type: 'line',
             data: { labels: stats.dailyLabels, datasets: [{ label: '日次人件費', data: stats.dailyCosts, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.3 }] },
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
@@ -2596,7 +2942,7 @@ const app = {
         const data = topStaff.map(s => s.cost);
         if (otherCost > 0) { labels.push('その他'); data.push(otherCost); }
 
-        new Chart(document.getElementById('staffShareChart'), {
+        this.analyticsShareChart = new Chart(document.getElementById('staffShareChart'), {
             type: 'doughnut',
             data: { labels: labels, datasets: [{ data: data, backgroundColor: ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ec4899', '#9ca3af'] }] },
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
@@ -2650,7 +2996,7 @@ const app = {
                                     <td class="p-4 whitespace-nowrap">
                                         <div class="flex items-center gap-3">
                                             <div class="w-9 h-9 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center text-gray-500 font-bold text-sm shadow-sm">
-                                                ${s.name.charAt(0)}
+                                                ${this._sanitize(s.name.charAt(0))}
                                             </div>
                                             <div>
                                                 <div class="font-bold text-gray-800 text-sm">${this._sanitize(s.name)}</div>
@@ -2660,7 +3006,7 @@ const app = {
                                     </td>
                                     <td class="p-4 whitespace-nowrap">
                                         <span class="px-2.5 py-1 text-xs font-bold rounded-full border shadow-sm ${badgeClass}">
-                                            ${role.name}
+                                            ${this._sanitize(role.name)}
                                         </span>
                                     </td>
                                     <td class="p-4 whitespace-nowrap">
@@ -2718,17 +3064,28 @@ const app = {
         const specialHolidays = config.special_holidays || [];
         const specialDays = config.special_days || {};
         const timeStaffReq = config.time_staff_req || [];
+        const positions = config.positions || ['ホール', 'キッチン'];
 
         container.innerHTML = `
             <div class="max-w-4xl mx-auto space-y-8 pb-24">
                 <div class="flex items-center justify-between border-b border-gray-200 pb-4">
                     <div>
                         <h2 class="text-2xl font-bold text-gray-800">店舗設定</h2>
-                        <p class="text-sm text-gray-500 mt-1">AIシフト生成に使われるルールです。ここを正しく設定するとAIが最適なシフトを作れます。</p>
+                        <p class="text-sm text-gray-500 mt-1">AIシフト生成に使われるルールです。</p>
                     </div>
                     <button onclick="app.saveSettings()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg shadow-md shadow-blue-200 transition-all transform active:scale-95 flex items-center whitespace-nowrap shrink-0">
                         <i class="fa-solid fa-save mr-2"></i>設定を保存
                     </button>
+                </div>
+
+                <div class="mb-6 p-4 bg-purple-50 border-l-4 border-purple-500 rounded-lg text-sm text-purple-900 leading-relaxed shadow-sm">
+                    <strong><i class="fa-solid fa-triangle-exclamation text-purple-600 mr-2"></i> 【重要】店舗設定の正確さがAIの精度を決めます</strong><br>
+                    <div class="mt-2 space-y-2">
+                        <p>ラクシフトAIは、ここに入力された条件を「店舗の絶対的なルール」として学習しシフトを組みます。</p>
+                        <p>・<span class="font-bold text-purple-700">正確に設定した場合</span>：時間帯ごとの最適な人員配置、管理者の確実なカバー、休憩の自動付与など「店長が頭を抱えていたパズル」を完璧に解いたシフトを生成します。</p>
+                        <p>・<span class="font-bold text-red-500">設定が甘い場合</span>（例: 必要な人数を全て0にする、管理者を設定しない等）：AIは「何人でも良い」「誰でも良い」と判断するため、人が足りない時間帯ができたり、法律上は問題なくても実用的でないシフトが出来上がってしまいます。</p>
+                        <p class="font-bold mt-2">※特に「営業時間内の管理者カバー」と「時間帯別の必要人数」は、店舗の実態に合わせて正確に入力してください。</p>
+                    </div>
                 </div>
 
                 <!-- 1. 役職・ロール設定 -->
@@ -2784,6 +3141,23 @@ const app = {
                     </div>
                 </div>
 
+                <!-- 1.5. ポジション設定 -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mt-8">
+                    <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                        <h3 class="font-bold text-gray-800 flex items-center gap-2"><i class="fa-solid fa-map-pin text-teal-500"></i> ポジション設定</h3>
+                        <p class="text-xs text-gray-400 font-normal ml-6">店舗内の役割（ホール、キッチンなど）を自由に設定できます。</p>
+                    </div>
+                    <div class="p-6">
+                        <label class="block text-xs font-bold text-gray-500 mb-2">ポジション一覧（スペース・読点等で区切って入力）</label>
+                        <input type="text" id="settingPositions" class="w-full border-gray-300 rounded-lg px-3 py-2 text-sm font-bold bg-white" value="${positions.join('　')}" placeholder="例: ホール　キッチン　デリバリー">
+                        <p class="text-xs text-gray-400 mt-3">※ ここで設定したポジションは、スタッフ管理の「担当ポジション」や、時間帯別ルールの「ポジション指定」の選択肢になります。</p>
+                        <div class="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-xs text-yellow-800 leading-relaxed">
+                            <i class="fa-solid fa-circle-exclamation mr-1 text-yellow-600"></i> <strong>【重要】ポジション変更時のご注意</strong><br>
+                            稼働中にポジション名を変更・削除すると、過去にそのポジションに設定されていたスタッフは「指定なし (全般)」として扱われます。なるべく初期設定の段階でポジションを確定させてください。
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 2. 営業時間・定休日 -->
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                     <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
@@ -2826,7 +3200,7 @@ const app = {
                             <div class="flex flex-wrap gap-4 mb-4">
                                 ${['日', '月', '火', '水', '木', '金', '土'].map((day, i) => `
                                     <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 transition">
-                                        <input type="checkbox" name="setting_closed_days" value="${i}" class="w-5 h-5 text-red-500 rounded focus:ring-red-500 border-gray-300" ${closedDays.includes(i) ? 'checked' : ''}>
+                                        <input type="checkbox" name="setting_closed_days" value="${i}" class="w-5 h-5 text-red-500 rounded focus:ring-red-500 border-gray-300" ${closedDays.map(Number).includes(i) ? 'checked' : ''}>
                                         <span class="font-bold ${i===0?'text-red-500':i===6?'text-blue-500':'text-gray-700'}">${day}曜日</span>
                                     </label>
                                 `).join('')}
@@ -2863,9 +3237,9 @@ const app = {
                                     ${Object.entries(specialDays).map(([date, conf]) => `
                                         <div class="flex items-center justify-between bg-white border border-gray-200 px-3 py-2 rounded-lg text-sm">
                                             <div class="flex items-center gap-3">
-                                                <span class="font-bold text-gray-800">${date}</span>
-                                                <span class="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs font-mono">${conf.start} - ${conf.end}</span>
-                                                <span class="text-gray-500 text-xs">${conf.note || ''}</span>
+                                                <span class="font-bold text-gray-800">${this._sanitize(date)}</span>
+                                                <span class="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs font-mono">${this._sanitize(conf.start)} - ${this._sanitize(conf.end)}</span>
+                                                <span class="text-gray-500 text-xs">${this._sanitize(conf.note || '')}</span>
                                             </div>
                                             <button onclick="app.removeSpecialDay('${date}')" class="text-gray-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button>
                                         </div>
@@ -2992,6 +3366,7 @@ const app = {
                                             <th class="p-2">開始</th>
                                             <th class="p-2">終了</th>
                                             <th class="p-2">人数</th>
+                                            <th class="p-2 w-1/4">ポジション</th>
                                             <th class="p-2 text-right"></th>
                                         </tr>
                                     </thead>
@@ -3017,6 +3392,12 @@ const app = {
                                                     ${this.get15MinTimeSelect(rule.end, '', 'setting-time-req-end border-gray-300 rounded px-2 py-1 text-xs w-full')}
                                                 </td>
                                                 <td class="p-2"><input type="number" class="setting-time-req-count border-gray-300 rounded px-2 py-1 text-xs w-12 text-center font-bold" value="${rule.count}"></td>
+                                                <td class="p-2">
+                                                    <select class="setting-time-req-position border-gray-300 rounded px-2 py-1 text-xs w-full font-bold">
+                                                        <option value="any" ${rule.position === 'any' || !rule.position ? 'selected' : ''}>全般 (区別なし)</option>
+                                                        ${positions.map(p => `<option value="${this._sanitize(p)}" ${rule.position === p ? 'selected' : ''}>${this._sanitize(p)}のみ</option>`).join('')}
+                                                    </select>
+                                                </td>
                                                 <td class="p-2 text-right"><button onclick="app.removeTimeStaffReq(${idx})" class="text-red-400 hover:text-red-600"><i class="fa-solid fa-trash"></i></button></td>
                                             </tr>
                                             `;
@@ -3048,11 +3429,14 @@ const app = {
                             </div>
                         </div>
                         
-                        <div class="border-t border-gray-100 pt-4">
+                        <div class="border-t border-gray-100 pt-4 flex flex-wrap gap-3">
                             <button onclick="app.openModal('changePasswordModal')" class="flex items-center gap-2 text-sm font-bold text-amber-600 bg-amber-50 border border-amber-200 px-4 py-2.5 rounded-lg hover:bg-amber-100 transition">
                                 <i class="fa-solid fa-key"></i> 店舗ログインパスワードを変更
                             </button>
-                            <p class="text-xs text-gray-400 mt-1">※ 店舗ログイン時に使用するパスワードを変更できます</p>
+                            <button onclick="app.openAdminPasswordChange()" class="flex items-center gap-2 text-sm font-bold text-purple-600 bg-purple-50 border border-purple-200 px-4 py-2.5 rounded-lg hover:bg-purple-100 transition">
+                                <i class="fa-solid fa-user-shield"></i> 管理者パスワードを変更
+                            </button>
+                            <p class="text-xs text-gray-400 mt-1 w-full">※ 店舗パスワード=日常閲覧用 / 管理者パスワード=編集権限用</p>
                         </div>
 
                         <!-- AI設定 (運営管理のため非表示) -->
@@ -3132,7 +3516,7 @@ const app = {
                                 <div>
                                     <p class="text-white/70 text-xs font-medium">現在ご利用中のプラン</p>
                                     <p class="text-3xl font-extrabold mt-1">${{standard:'Standard', pro:'Pro', premium:'Premium'}[config.stripe_plan] || 'Standard'}</p>
-                                    <p class="text-white/80 text-sm mt-1">${{standard:'2,980円/月 - スタッフ10名まで', pro:'4,480円/月 - スタッフ50名まで', premium:'9,980円/月 - スタッフ無制限'}[config.stripe_plan] || '2,980円/月 - スタッフ10名まで'}</p>
+                                    <p class="text-white/80 text-sm mt-1">${{standard:'3,380円/月 - スタッフ10名まで', pro:'4,880円/月 - スタッフ50名まで', premium:'9,980円/月 - スタッフ無制限'}[config.stripe_plan] || '3,380円/月 - スタッフ10名まで'}</p>
                                 </div>
                                 <div class="text-right">
                                     <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 rounded-full text-sm font-bold backdrop-blur-sm">
@@ -3147,8 +3531,8 @@ const app = {
                             <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">プラン変更</h4>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                                 ${[
-                                    { key: 'standard', name: 'Standard', price: '2,980', staffs: '10名', color: 'blue', features: ['スタッフ10名まで', 'AI自動シフト生成', 'AI労基法チェック', 'シフト管理全機能'] },
-                                    { key: 'pro', name: 'Pro', price: '4,480', staffs: '50名', color: 'green', badge: '人気', features: ['スタッフ50名まで', '全AI機能', '優先サポート', '分析レポート'] },
+                                    { key: 'standard', name: 'Standard', price: '3,380', staffs: '10名', color: 'blue', features: ['スタッフ10名まで', 'AI自動シフト生成', 'AI労基法チェック', 'シフト管理全機能'] },
+                                    { key: 'pro', name: 'Pro', price: '4,880', staffs: '50名', color: 'green', badge: '人気', features: ['スタッフ50名まで', '全AI機能', '優先サポート', '分析レポート'] },
                                     { key: 'premium', name: 'Premium', price: '9,980', staffs: '無制限', color: 'purple', features: ['スタッフ無制限', '全AI機能', '複数店舗対応', '専属サポート'] },
                                 ].map(p => {
                                     const currentPlanKey = (config.stripe_plan && config.stripe_plan !== 'free') ? config.stripe_plan : 'standard';
@@ -3366,6 +3750,11 @@ const app = {
         // 定休日
         config.closed_days = Array.from(document.querySelectorAll('input[name="setting_closed_days"]:checked')).map(el => parseInt(el.value));
 
+        // ポジション設定
+        const posInput = document.getElementById('settingPositions')?.value || '';
+        config.positions = posInput.split(/[,、\s　]+/).map(p => p.trim()).filter(p => p !== '');
+        if (config.positions.length === 0) config.positions = ['ホール', 'キッチン'];
+
         // 役職・ロール設定
         const roleNames = document.querySelectorAll('.setting-role-name');
         const roleIds = document.querySelectorAll('.setting-role-id');
@@ -3428,12 +3817,13 @@ const app = {
             const start = row.querySelector('.setting-time-req-start')?.value;
             const end = row.querySelector('.setting-time-req-end')?.value;
             const count = Number(row.querySelector('.setting-time-req-count')?.value || 0);
+            const position = row.querySelector('.setting-time-req-position')?.value || 'any';
 
             const daysChecks = document.querySelectorAll(`.setting-time-req-day-${idx}:checked`);
             const days = Array.from(daysChecks).map(c => Number(c.value));
 
             if (days.length > 0 && start && end && count > 0) {
-                config.time_staff_req.push({ days, start, end, count });
+                config.time_staff_req.push({ days, start, end, count, position });
             }
         });
 
@@ -3458,6 +3848,7 @@ const app = {
                 hourly_wage_default: newConfig.hourly_wage_default,
                 opening_times: newConfig.opening_times,
                 closed_days: newConfig.closed_days,
+                positions: newConfig.positions,
                 staff_req: newConfig.staff_req,
                 roles: newConfig.roles,
                 special_holidays: newConfig.special_holidays,
@@ -3521,10 +3912,12 @@ const app = {
         if (period === 'month') {
             const lastDay = new Date(year, month + 1, 0).getDate();
             allDays = Array.from({length: lastDay}, (_, i) => new Date(year, month, i + 1));
+        } else if (period === 'day') {
+            allDays = [new Date(this.state.currentDate)];
         } else {
-            const range = period === 'week' ? 7 : 14;
+            // week モード
             const start = new Date(this.state.currentDate);
-            allDays = Array.from({length: range}, (_, i) => {
+            allDays = Array.from({length: 7}, (_, i) => {
                 const d = new Date(start);
                 d.setDate(start.getDate() + i);
                 return d;
@@ -3539,7 +3932,15 @@ const app = {
         }
 
         // 3. 印刷用ウィンドウ作成
+        // 印刷ウィンドウの opener 参照を切断し tabnabbing を防止。
+        // (noopener フラグ付き open は戻り値が null になるため、開いた後で opener を nullify する)
         const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            try { printWindow.opener = null; } catch (_) { /* same-origin restriction で失敗しても無害 */ }
+        } else {
+            this.showToast('ポップアップがブロックされました。ブラウザの設定を確認してください。', 'error');
+            return;
+        }
         if (!printWindow) {
             alert('ポップアップがブロックされました。「許可」してください。');
             return;
@@ -3815,6 +4216,8 @@ const app = {
         endEl.value = defEnd;
 
         document.getElementById('editShiftBreak').value = 60;
+        const memoEl = document.getElementById('editShiftMemo');
+        if (memoEl) memoEl.value = '';
 
         this.openModal('editShiftModal');
         const saveBtn = document.getElementById('saveShiftBtn');
@@ -3840,7 +4243,7 @@ const app = {
                 const breakRules = this.state.config.break_rules || this.state.defaultConfig.break_rules || [];
                 let brk = 0;
                 for (const rule of breakRules.sort((a, b) => a.min_hours - b.min_hours)) {
-                    if (hours > rule.min_hours) brk = rule.break_minutes;
+                    if (hours >= rule.min_hours) brk = rule.break_minutes;
                 }
                 if (shift.break_minutes !== brk) {
                     shift.break_minutes = brk;
@@ -3867,7 +4270,8 @@ const app = {
         document.getElementById('editShiftStaffId').value = shift.staff_id;
         document.getElementById('editShiftTitle').textContent = 'シフト編集';
         document.getElementById('editShiftDateDisplay').textContent = shift.date;
-        document.getElementById('editShiftStaffName').innerHTML = `<div class="py-2 text-xl text-gray-800">${staff ? staff.name : '不明なスタッフ'}</div>`;
+        const safeName = staff ? this._sanitize(staff.name) : '不明なスタッフ';
+        document.getElementById('editShiftStaffName').innerHTML = `<div class="py-2 text-xl text-gray-800">${safeName}</div>`;
         
         // 時間の正規化 (HH:mm:ss -> HH:mm)
         const startTime = shift.start_time.substr(0, 5);
@@ -3885,6 +4289,8 @@ const app = {
         endEl.value = endTime;
         
         document.getElementById('editShiftBreak').value = shift.break_minutes;
+        const memoEl = document.getElementById('editShiftMemo');
+        if (memoEl) memoEl.value = shift.memo || '';
         document.getElementById('deleteShiftBtn').classList.remove('hidden');
 
         const deleteBtn = document.getElementById('deleteShiftBtn');
@@ -3906,11 +4312,12 @@ const app = {
         const selectEl = document.getElementById('editShiftStaffSelect');
         if (selectEl) staffId = selectEl.value;
 
-        if (!staffId || !start || !end) { alert('必須項目を入力してください'); return; }
-        if (start >= end) { alert('時間の順序が不正です'); return; }
+        if (!staffId || !start || !end) { app.showToast('必須項目を入力してください', 'error'); return; }
+        if (start === end) { app.showToast('開始時間と終了時間が同じです', 'error'); return; }
         if (document.getElementById('editShiftHoliday').checked && id) { await this.deleteShift(id); this.closeModal('editShiftModal'); return; }
 
-        const data = { staff_id: staffId, date, start_time: start, end_time: end, break_minutes: breakMins };
+        const memo = (document.getElementById('editShiftMemo')?.value || '').trim();
+        const data = { staff_id: staffId, date, start_time: start, end_time: end, break_minutes: breakMins, memo };
         if (!id) data.organization_id = this.state.organization_id;
         
         this.showLoading(true);
@@ -3993,6 +4400,7 @@ const app = {
     // --- スタッフ管理 ---
     prepareStaffModal() {
         this.updateStaffRoleSelect();
+        this.updateStaffPositionSelect();
         this.openModal('staffModal');
         document.getElementById('staffForm').reset();
         document.getElementById('staffId').value='';
@@ -4008,6 +4416,17 @@ const app = {
         
         const roles = this.state.config.roles || this.state.defaultConfig.roles;
         select.innerHTML = roles.map(r => `<option value="${r.id}">${this._sanitize(r.name)}</option>`).join('');
+    },
+    
+    updateStaffPositionSelect() {
+        const select = document.getElementById('staffPosition');
+        if(!select) return;
+        const positions = this.state.config.positions || ['ホール', 'キッチン'];
+        let html = '<option value="any">指定なし (全般)</option>';
+        positions.forEach(p => {
+            html += `<option value="${this._sanitize(p)}">${this._sanitize(p)}専用</option>`;
+        });
+        select.innerHTML = html;
     },
 
     // プラン別スタッフ上限
@@ -4139,23 +4558,34 @@ const app = {
                 : String(existingStaff.unavailable_dates).split(',').map(d=>d.trim()).filter(d=>d);
         }
         // 既存のタグを削除
-        uDates = uDates.filter(d => !d.startsWith('priority:') && !d.startsWith('contract:') && !d.startsWith('prefStart:') && !d.startsWith('prefEnd:') && !d.startsWith('ngDay:'));
+        uDates = uDates.filter(d => !d.startsWith('priority:') && !d.startsWith('contract:') && !d.startsWith('prefStart') && !d.startsWith('prefEnd') && !d.startsWith('ngDay:') && !d.startsWith('ngPair:') && !d.startsWith('reqPair:') && !d.startsWith('position:'));
         
         const contractType = document.getElementById('staffContractType')?.value || 'general';
         const shiftPriority = document.getElementById('staffShiftPriority')?.value || 'medium';
-        const prefStart = document.getElementById('staffPrefStart')?.value || '';
-        const prefEnd = document.getElementById('staffPrefEnd')?.value || '';
+        const usePref = document.getElementById('staffUsePrefHours')?.checked;
+        const prefStartWd = usePref ? (document.getElementById('staffPrefStartWeekday')?.value || '') : '';
+        const prefEndWd = usePref ? (document.getElementById('staffPrefEndWeekday')?.value || '') : '';
+        const prefStartWe = usePref ? (document.getElementById('staffPrefStartWeekend')?.value || '') : '';
+        const prefEndWe = usePref ? (document.getElementById('staffPrefEndWeekend')?.value || '') : '';
+        const ngPairs = document.getElementById('staffNgPairs')?.value || '';
+        const reqPairs = document.getElementById('staffReqPairs')?.value || '';
+        const position = document.getElementById('staffPosition')?.value || 'any';
         
         uDates.push(`priority:${shiftPriority}`);
         uDates.push(`contract:${contractType}`);
-        if (prefStart) uDates.push(`prefStart:${prefStart}`);
-        if (prefEnd) uDates.push(`prefEnd:${prefEnd}`);
+        if (prefStartWd) uDates.push(`prefStartWd:${prefStartWd}`);
+        if (prefEndWd) uDates.push(`prefEndWd:${prefEndWd}`);
+        if (prefStartWe) uDates.push(`prefStartWe:${prefStartWe}`);
+        if (prefEndWe) uDates.push(`prefEndWe:${prefEndWe}`);
+        if (ngPairs) uDates.push(`ngPair:${ngPairs}`);
+        if (reqPairs) uDates.push(`reqPair:${reqPairs}`);
+        if (position !== 'any') uDates.push(`position:${position}`);
         for(let i=0; i<=6; i++) {
             const cb = document.getElementById('prefDay'+i);
             if(cb && !cb.checked) uDates.push(`ngDay:${i}`);
         }
         
-        data.unavailable_dates = uDates.join(',');
+        data.unavailable_dates = uDates;
 
         this.showLoading(true);
         try {
@@ -4195,6 +4625,7 @@ const app = {
         const s = this.getStaff(id);
         if(!s) return;
         this.updateStaffRoleSelect(); // Selectを最新化
+        this.updateStaffPositionSelect(); // ポジション一覧を最新化
         document.getElementById('staffId').value = s.id;
         document.getElementById('staffName').value = s.name;
         document.getElementById('staffRole').value = s.role;
@@ -4203,24 +4634,49 @@ const app = {
         // unavailable_datesからメタデータを抽出
         let shiftPriority = 'medium';
         let contractType = 'general';
-        let prefStart = '';
-        let prefEnd = '';
+        let prefStartWd = '';
+        let prefEndWd = '';
+        let prefStartWe = '';
+        let prefEndWe = '';
+        let ngPairs = '';
+        let reqPairs = '';
+        let position = 'any';
         let ngDays = [];
+        let hasPref = false;
         if (s.unavailable_dates) {
             const uDates = Array.isArray(s.unavailable_dates) ? s.unavailable_dates : String(s.unavailable_dates).split(',');
             uDates.forEach(d => {
                 const txt = d.trim();
                 if (txt.startsWith('priority:')) shiftPriority = txt.replace('priority:', '');
                 if (txt.startsWith('contract:')) contractType = txt.replace('contract:', '');
-                if (txt.startsWith('prefStart:')) prefStart = txt.replace('prefStart:', '');
-                if (txt.startsWith('prefEnd:')) prefEnd = txt.replace('prefEnd:', '');
+                if (txt.startsWith('prefStartWd:')) { prefStartWd = txt.replace('prefStartWd:', ''); hasPref = true; }
+                if (txt.startsWith('prefEndWd:')) { prefEndWd = txt.replace('prefEndWd:', ''); hasPref = true; }
+                if (txt.startsWith('prefStartWe:')) { prefStartWe = txt.replace('prefStartWe:', ''); hasPref = true; }
+                if (txt.startsWith('prefEndWe:')) { prefEndWe = txt.replace('prefEndWe:', ''); hasPref = true; }
+                if (txt.startsWith('ngPair:')) ngPairs = txt.replace('ngPair:', '');
+                if (txt.startsWith('reqPair:')) reqPairs = txt.replace('reqPair:', '');
+                if (txt.startsWith('position:')) position = txt.replace('position:', '');
+                // 互換性のため古いタグもサポート
+                if (txt.startsWith('prefStart:')) { prefStartWd = txt.replace('prefStart:', ''); prefStartWe = txt.replace('prefStart:', ''); hasPref = true; }
+                if (txt.startsWith('prefEnd:')) { prefEndWd = txt.replace('prefEnd:', ''); prefEndWe = txt.replace('prefEnd:', ''); hasPref = true; }
                 if (txt.startsWith('ngDay:')) ngDays.push(txt.replace('ngDay:', ''));
             });
         }
         if (document.getElementById('staffContractType')) document.getElementById('staffContractType').value = contractType;
         if (document.getElementById('staffShiftPriority')) document.getElementById('staffShiftPriority').value = shiftPriority;
-        if (document.getElementById('staffPrefStart')) document.getElementById('staffPrefStart').value = prefStart;
-        if (document.getElementById('staffPrefEnd')) document.getElementById('staffPrefEnd').value = prefEnd;
+        
+        const usePrefCb = document.getElementById('staffUsePrefHours');
+        if (usePrefCb) {
+            usePrefCb.checked = hasPref;
+        }
+        
+        if (document.getElementById('staffPrefStartWeekday')) document.getElementById('staffPrefStartWeekday').value = prefStartWd;
+        if (document.getElementById('staffPrefEndWeekday')) document.getElementById('staffPrefEndWeekday').value = prefEndWd;
+        if (document.getElementById('staffPrefStartWeekend')) document.getElementById('staffPrefStartWeekend').value = prefStartWe;
+        if (document.getElementById('staffPrefEndWeekend')) document.getElementById('staffPrefEndWeekend').value = prefEndWe;
+        if (document.getElementById('staffNgPairs')) document.getElementById('staffNgPairs').value = ngPairs;
+        if (document.getElementById('staffReqPairs')) document.getElementById('staffReqPairs').value = reqPairs;
+        if (document.getElementById('staffPosition')) document.getElementById('staffPosition').value = position;
         for(let i=0; i<=6; i++) {
             const cb = document.getElementById('prefDay'+i);
             if(cb) cb.checked = !ngDays.includes(String(i));
@@ -4233,6 +4689,7 @@ const app = {
         document.getElementById('staffMinDaysPerWeek').value = s.min_days_week || 0;
         document.getElementById('staffMinDaysPerMonth').value = s.min_days_month || 0;
         this.toggleSalaryInputs();
+        this.togglePrefHoursInputs();
         this.openModal('staffModal');
     },
     async deleteStaff(id) {
@@ -4254,15 +4711,7 @@ const app = {
             return;
         }
 
-        // 二重確認: 1回目
-        if (!confirm(`【スタッフ削除 - 最終確認】\n\n「${staff.name}」を本当に削除しますか？\n\n⚠️ この操作は元に戻せません\n⚠️ 関連するシフト・申請データも全て削除されます`)) return;
-
-        // 二重確認: 2回目（名前入力）
-        const inputName = prompt(`最終確認: 削除するスタッフ名「${staff.name}」を入力してください:`);
-        if (inputName !== staff.name) {
-            this.showToast('名前が一致しません。削除をキャンセルしました。', 'info');
-            return;
-        }
+        if (!confirm(`「${staff.name}」を削除しますか？\n\n※関連するシフト・申請データも全て削除されます。\nこの操作は元に戻せません。`)) return;
 
         this.showLoading(true);
         try {
@@ -4285,6 +4734,17 @@ const app = {
         } else {
             document.getElementById('hourlyInputGroup').classList.add('hidden');
             document.getElementById('monthlyInputGroup').classList.remove('hidden');
+        }
+    },
+    togglePrefHoursInputs() {
+        const usePref = document.getElementById('staffUsePrefHours')?.checked;
+        const group = document.getElementById('prefHoursInputGroup');
+        if (group) {
+            if (usePref) {
+                group.classList.remove('hidden');
+            } else {
+                group.classList.add('hidden');
+            }
         }
     },
 
@@ -4390,7 +4850,7 @@ const app = {
         const reason = (document.getElementById('requestReason')?.value || '');
 
         if (!staffId || dates.length === 0) {
-            alert('スタッフと日付を選択してください');
+            app.showToast('スタッフと日付を選択してください', 'error');
             return;
         }
 
@@ -4417,7 +4877,7 @@ const app = {
                 if (type === 'work') {
                     data.start_time = (document.getElementById('requestStartTime')?.value || '');
                     data.end_time = (document.getElementById('requestEndTime')?.value || '');
-                    if (!data.start_time || !data.end_time) { alert('時間を入力してください'); return; }
+                    if (!data.start_time || !data.end_time) { app.showToast('時間を入力してください', 'error'); return; }
                 }
 
                 await API.create('requests', data);
@@ -4645,11 +5105,29 @@ const app = {
                 config: this.state.config,
                 dates: dates,
                 requests: this.state.requests || [],
-                mode: 'auto'
+                mode: 'auto',
+                existing_shifts: []
             };
 
+            // empty_only モード: 期間内の既存シフトを「固定」として Python に渡し、
+            // 空きスロットのみ最適化される。これがないとサーバはゼロから組み直すため
+            // 「空きを埋めるをクリックすると人数が減る」現象が発生する。
+            // 注意: id が無いシフト (=未保存のローカルプレビュー残骸) は除外する。
+            //       これがないと、前回の生成試行で残った仮データを「既存」として固定して
+            //       しまい、本当の DB データと矛盾する。
+            if (targetType === 'empty_only') {
+                payload.existing_shifts = (this.state.shifts || [])
+                    .filter(s => s && s.id && s.date && dates.includes(s.date) && s.staff_id && s.start_time && s.end_time)
+                    .map(s => ({
+                        staff_id: s.staff_id,
+                        date: s.date,
+                        start_time: (s.start_time || '').substr(0, 5),
+                        end_time: (s.end_time || '').substr(0, 5)
+                    }));
+            }
+
             // デバッグ: 送信スタッフ数を確認
-            console.log(`[AutoFill] Sending ${payload.staff_list.length} staff, ${dates.length} dates, ${payload.requests.length} requests`);
+            console.log(`[AutoFill] Sending ${payload.staff_list.length} staff, ${dates.length} dates, ${payload.requests.length} requests, ${payload.existing_shifts.length} fixed-existing`);
             console.log('[AutoFill] Staff IDs:', payload.staff_list.map(s => s.name || s.id).join(', '));
 
             // === STEP 2: 事前チェック ===
@@ -4751,6 +5229,7 @@ const app = {
                 this._pendingPreviewShifts = finalShifts;
                 this._pendingPreviewTargetType = targetType;
                 this._pendingPreviewDates = dates;
+                this._pendingPreviewReport = result.report || null;
 
             } else if (result.status === 'success' && result.mode === 'math_failed') {
                 // 数理最適化が解を見つけられなかった
@@ -4810,10 +5289,11 @@ const app = {
             // プレビューモーダルを表示（生成成功時）
             if (this._generationSuccess && this._pendingPreviewShifts && this._pendingPreviewShifts.length > 0) {
                 setTimeout(() => {
-                    this.showShiftPreview(this._pendingPreviewShifts, this._pendingPreviewTargetType, this._pendingPreviewDates);
+                    this.showShiftPreview(this._pendingPreviewShifts, this._pendingPreviewTargetType, this._pendingPreviewDates, this._pendingPreviewReport);
                     this._pendingPreviewShifts = null;
                     this._pendingPreviewTargetType = null;
                     this._pendingPreviewDates = null;
+                    this._pendingPreviewReport = null;
                 }, 300);
             } else if (!this._generationSuccess) {
                 this.showToast('シフト作成に問題がありました。条件を見直してください。', 'warning');
@@ -4842,7 +5322,7 @@ const app = {
         this.state.shifts = this.state.shifts.filter(function(s){ return targetDates.indexOf(s.date) === -1; });
 
         var cleanShifts = shifts.map(function(s){
-            return {
+            var obj = {
                 organization_id: this.state.organization_id,
                 staff_id: s.staff_id,
                 date: s.date,
@@ -4850,6 +5330,9 @@ const app = {
                 end_time: s.end_time,
                 break_minutes: s.break_minutes || 0
             };
+            // イレギュラーフラグがある場合のみ保存（通常シフトではfalse/未設定）
+            if (s.is_irregular) obj.is_irregular = true;
+            return obj;
         }.bind(this));
 
         var batchSize = 50;
@@ -4936,8 +5419,8 @@ const app = {
             timeReqManager.set(t, Number(reqManager));
         }
 
-        // 時間帯別ルールの適用 (time_staff_req)
-        const timeRules = (config.time_staff_req || []).filter(r => r.days.includes(dayOfWeek));
+        // 時間帯別ルールの適用 (time_staff_req)（days配列の型を数値に統一）
+        const timeRules = (config.time_staff_req || []).filter(r => (r.days || []).map(Number).includes(dayOfWeek));
         timeRules.forEach(rule => {
             const rStart = toMins(rule.start);
             let rEnd = toMins(rule.end);
@@ -5359,8 +5842,24 @@ const app = {
 
     // --- マニュアル ---
     renderManual(container) {
-        if (!this.state.isAdmin) { this.changeView('dashboard'); return; }
+        if (!this.state.isAdmin && !this.state.isHQ) { this.changeView('dashboard'); return; }
+
+        let tabsHtml = '';
+        if (this.state.isHQ) {
+            tabsHtml = `
+            <div class="flex border-b border-gray-200 mb-6 bg-white rounded-xl p-1 shadow-sm max-w-4xl mx-auto">
+                <button onclick="app.changeView('manual')" class="flex-1 py-2.5 text-sm font-bold text-center rounded-lg bg-indigo-50 text-indigo-700 shadow-sm transition-all">
+                    <i class="fa-solid fa-book mr-1"></i>店舗管理者マニュアル
+                </button>
+                <button onclick="app.changeView('hq_manual')" class="flex-1 py-2.5 text-sm font-bold text-center rounded-lg text-gray-500 hover:text-gray-900 transition-all">
+                    <i class="fa-solid fa-building-user mr-1"></i>本部管理者マニュアル
+                </button>
+            </div>
+            `;
+        }
+
         container.innerHTML = `
+        ${tabsHtml}
         <div class="max-w-4xl mx-auto space-y-6 pb-20">
             <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-book mr-2 text-indigo-500"></i>システムマニュアル</h2>
 
@@ -5368,6 +5867,7 @@ const app = {
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <h3 class="font-bold text-gray-800 mb-3">目次</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                    <a href="#m-important" class="text-red-600 hover:underline font-bold">⚠ 設定の重要性</a>
                     <a href="#m-roles" class="text-indigo-600 hover:underline">1. 役職・ロール</a>
                     <a href="#m-eval" class="text-indigo-600 hover:underline">2. スタッフ評価 (A〜D)</a>
                     <a href="#m-shift" class="text-indigo-600 hover:underline">3. AIシフト作成</a>
@@ -5382,16 +5882,69 @@ const app = {
                 </div>
             </div>
 
+            <!-- 設定の重要性 -->
+            <div id="m-important" class="bg-gradient-to-r from-red-50 to-orange-50 rounded-xl shadow-sm border-2 border-red-300 p-6">
+                <h3 class="text-lg font-bold text-red-700 mb-3"><i class="fa-solid fa-triangle-exclamation mr-2"></i>設定の重要性 ― AIシフト精度を最大化するために</h3>
+                <div class="bg-white/80 rounded-lg p-4 mb-4">
+                    <p class="text-sm text-gray-800 font-bold mb-2">ラクシフトAIのシフト精度は「設定の正確さ」に直結します。</p>
+                    <p class="text-sm text-gray-600">AIは設定された情報だけを元に最適なシフトを組みます。設定が不十分だと、偏った配置や穴抜けの原因になります。以下の設定を必ず確認してください。</p>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="bg-white rounded-lg p-4 border border-orange-200">
+                        <h4 class="font-bold text-orange-700 mb-2"><i class="fa-solid fa-user-gear mr-1"></i>スタッフ設定（最重要）</h4>
+                        <table class="w-full text-sm border-collapse">
+                            <thead><tr class="bg-orange-50"><th class="p-2 text-left border">設定項目</th><th class="p-2 text-left border">説明</th><th class="p-2 text-left border">未設定時の影響</th></tr></thead>
+                            <tbody>
+                                <tr><td class="p-2 border font-bold">週最大出勤日数</td><td class="p-2 border">1週間に最大何日働けるか</td><td class="p-2 border text-red-600">デフォルト5日になり、バイトに過剰配置される</td></tr>
+                                <tr><td class="p-2 border font-bold">週最低出勤日数</td><td class="p-2 border">1週間に最低何日は入りたいか</td><td class="p-2 border text-red-600">0日扱いでシフトに入らない場合がある</td></tr>
+                                <tr><td class="p-2 border font-bold">1日の最大労働時間</td><td class="p-2 border">1日に最大何時間働けるか</td><td class="p-2 border text-red-600">8時間扱いで短時間バイトが長時間シフトに入る</td></tr>
+                                <tr><td class="p-2 border font-bold">役職</td><td class="p-2 border">店長/リーダー/スタッフ/新人</td><td class="p-2 border text-red-600">OJT制約やメンター配置が機能しない</td></tr>
+                                <tr><td class="p-2 border font-bold">評価 (A〜D)</td><td class="p-2 border">スキルレベル</td><td class="p-2 border text-red-600">チーム戦力バランスが偏る</td></tr>
+                                <tr><td class="p-2 border font-bold">給与形態</td><td class="p-2 border">月給制 or 時給制</td><td class="p-2 border text-red-600">月給スタッフが優先配置されず人件費が増大</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="bg-white rounded-lg p-4 border border-blue-200">
+                        <h4 class="font-bold text-blue-700 mb-2"><i class="fa-solid fa-store mr-1"></i>店舗設定（重要）</h4>
+                        <table class="w-full text-sm border-collapse">
+                            <thead><tr class="bg-blue-50"><th class="p-2 text-left border">設定項目</th><th class="p-2 text-left border">説明</th><th class="p-2 text-left border">未設定時の影響</th></tr></thead>
+                            <tbody>
+                                <tr><td class="p-2 border font-bold">営業時間（曜日別）</td><td class="p-2 border">平日/土日/祝日の開店・閉店時間</td><td class="p-2 border text-red-600">閉店後の時間帯にも人員配置される</td></tr>
+                                <tr><td class="p-2 border font-bold">必要人員（曜日別）</td><td class="p-2 border">平日/土日/祝日の最低配置人数</td><td class="p-2 border text-red-600">人手不足・過剰配置が発生する</td></tr>
+                                <tr><td class="p-2 border font-bold">シフトパターン</td><td class="p-2 border">早番/遅番等の時間テンプレート</td><td class="p-2 border text-red-600">全員が同じ時間帯に集中する</td></tr>
+                                <tr><td class="p-2 border font-bold">定休日</td><td class="p-2 border">曜日ベースの休業日</td><td class="p-2 border text-red-600">休業日にシフトが配置される</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="bg-green-50 rounded-lg p-4 border border-green-300">
+                        <h4 class="font-bold text-green-700 mb-2"><i class="fa-solid fa-lightbulb mr-1"></i>AI精度を最大化するコツ</h4>
+                        <ul class="text-sm text-gray-700 space-y-1">
+                            <li>✅ <strong>全スタッフの勤務制約を正確に入力</strong>する（週最大/最低日数、1日最大時間）</li>
+                            <li>✅ <strong>月給制/時給制を正しく設定</strong>する → 月給スタッフが優先配置され人件費が最適化される</li>
+                            <li>✅ <strong>営業時間を曜日別に設定</strong>する → 土日の短縮営業等が正確に反映される</li>
+                            <li>✅ <strong>シフトパターンを2つ以上登録</strong>する → AIが自動的に中番も生成</li>
+                            <li>✅ <strong>必要人員を曜日別に設定</strong>する → 平日と土日の配置バランスが最適化される</li>
+                            <li>✅ <strong>役職と評価を正しく設定</strong>する → チーム編成の質が向上する</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
             <!-- 1. 役職 -->
             <div id="m-roles" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <h3 class="text-lg font-bold text-gray-800 mb-3"><span class="text-indigo-500 mr-2">1.</span>役職・ロール</h3>
                 <table class="w-full text-sm border-collapse">
                     <thead><tr class="bg-gray-50"><th class="p-2 text-left border">役職</th><th class="p-2 text-left border">役割</th><th class="p-2 text-left border">シフト生成への影響</th></tr></thead>
                     <tbody>
-                        <tr><td class="p-2 border font-bold">店長 (Manager)</td><td class="p-2 border">最高権限、メンター役</td><td class="p-2 border">毎営業日に最低1名配置必須</td></tr>
-                        <tr><td class="p-2 border font-bold">リーダー (Leader)</td><td class="p-2 border">副管理者、メンター役</td><td class="p-2 border">店長と同様メンター枠にカウント</td></tr>
-                        <tr><td class="p-2 border font-bold">スタッフ (Staff)</td><td class="p-2 border">一般スタッフ</td><td class="p-2 border">通常配置</td></tr>
-                        <tr><td class="p-2 border font-bold">新人 (Rookie)</td><td class="p-2 border">研修中</td><td class="p-2 border">必ずメンター（店長/リーダー）と同日配置</td></tr>
+                        <tr><td class="p-2 border font-bold">店長 (Manager)</td><td class="p-2 border">最高権限、メンター役</td><td class="p-2 border text-red-600 font-bold">毎営業日に最低○名配置必須（AIが最優先で配置）</td></tr>
+                        <tr><td class="p-2 border font-bold">副店長 (Sub-Manager)</td><td class="p-2 border">副管理者、メンター役</td><td class="p-2 border text-orange-600 font-bold">店長の代理として配置可能（店長と同等の権限）</td></tr>
+                        <tr><td class="p-2 border font-bold">社員 (Employee)</td><td class="p-2 border">一般社員</td><td class="p-2 border">アルバイトより優先的に配置（月給制の場合はコスト計算上有利に働きます）</td></tr>
+                        <tr><td class="p-2 border font-bold">リーダー (Leader)</td><td class="p-2 border">時間帯責任者、メンター役</td><td class="p-2 border">新人スタッフの指導役として重宝されます</td></tr>
+                        <tr><td class="p-2 border font-bold">アルバイト (Staff)</td><td class="p-2 border">一般スタッフ</td><td class="p-2 border">通常配置</td></tr>
+                        <tr><td class="p-2 border font-bold">新人 (Rookie)</td><td class="p-2 border">研修中</td><td class="p-2 border">必ずメンター（店長〜リーダー）と同日配置</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -5477,13 +6030,49 @@ const app = {
             <!-- 7. 店舗設定 -->
             <div id="m-settings" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <h3 class="text-lg font-bold text-gray-800 mb-3"><span class="text-indigo-500 mr-2">7.</span>店舗設定</h3>
-                <div class="space-y-2 text-sm text-gray-700">
-                    <p><strong>営業時間:</strong> 平日・土日・祝日ごとに設定。特別営業日は個別上書き可。</p>
-                    <p><strong>定休日:</strong> 曜日ベース（毎週水曜など）。臨時休業は日付指定。</p>
-                    <p><strong>シフトパターン:</strong> 早番・遅番などのテンプレートを登録。</p>
-                    <p><strong>最低人員:</strong> 平日/土日/祝日ごと、時間帯ごとの最低配置人数。</p>
-                    <p><strong>役職設定:</strong> 役職名のカスタマイズ。</p>
-                    <p><strong>運用ルール:</strong> スタッフ向けに表示されるお店のルールテキスト。</p>
+                <div class="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-3">
+                    <p class="text-sm text-amber-800 font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>店舗設定はAIシフトの品質に直結します。必ず正確に設定してください。</p>
+                </div>
+                <div class="space-y-4 text-sm text-gray-700">
+                    
+                    <div class="border-l-4 border-indigo-400 pl-4 py-1">
+                        <h4 class="font-bold text-indigo-700 text-base mb-1">1. 役職・ロール設定</h4>
+                        <p>スタッフの肩書き（店長・副店長・社員など）を自由にカスタマイズし、バッジの色を設定できます。また、各役職がシステムの裏側でどの「識別ID（Manager/Sub-Manager/Staffなど）」として扱われるかを決定します。</p>
+                        <p class="text-xs text-gray-500 mt-1">※AIは「Manager」や「Sub-Manager」を管理者として扱い、店舗を空にしないよう必ず配置します。</p>
+                    </div>
+
+                    <div class="border-l-4 border-teal-400 pl-4 py-1">
+                        <h4 class="font-bold text-teal-700 text-base mb-1">1.5. ポジション設定（重要）</h4>
+                        <p>店舗内の役割（ホール・キッチン・デリバリーなど）をスペースや読点等で区切って自由に設定できます。</p>
+                        <p class="text-xs text-red-600 font-bold mt-1">※注意: 稼働中にポジション名を変更・削除すると、過去そのポジションだったスタッフは「指定なし (全般)」扱いになるため、なるべく初期設定で確定させてください。</p>
+                    </div>
+                    
+                    <div class="border-l-4 border-blue-400 pl-4 py-1">
+                        <h4 class="font-bold text-blue-700 text-base mb-1">2. 営業時間 ＆ 定休日</h4>
+                        <p>平日・土日・祝日ごとに開店/閉店時間を設定します。未設定だと全日同一営業時間で計算されます。<br>定休日（毎週水曜など）を設定すると、AIはその曜日には一切シフトを入れません。</p>
+                    </div>
+
+                    <div class="border-l-4 border-orange-400 pl-4 py-1">
+                        <h4 class="font-bold text-orange-700 text-base mb-1">3. ベースの人員設定（1日あたり）</h4>
+                        <p><strong>管理者の必須人数:</strong> 「店長・副店長」といった管理者が、1日に最低何人必要かを設定します。<br>
+                        <strong>全体の最低人数:</strong> 平日・土日・祝日ごとの最低配置人数。これがシフト表の「人員状況」アラートの基準値になります。</p>
+                    </div>
+
+                    <div class="border-l-4 border-red-500 pl-4 py-1">
+                        <h4 class="font-bold text-red-700 text-base mb-1">4. 時間帯別・曜日別 人員増強（ピンポイント指定）</h4>
+                        <p>「毎週金曜日の17:00〜22:00は、ホールを＋2名増やしたい」といったピンポイントなルールの追加が可能です。<br>
+                        設定されたルールはAIの計算エンジンに最優先で組み込まれ、ポジションごとの過不足を完璧に防ぎます。</p>
+                    </div>
+                    
+                    <div class="border-l-4 border-purple-400 pl-4 py-1">
+                        <h4 class="font-bold text-purple-700 text-base mb-1">5. シフトパターンの設定</h4>
+                        <p>「早番（09:00〜18:00）」「遅番（13:00〜22:00）」などの時間テンプレートです。<strong>2つ以上登録するとAIが自動的に間を埋める中番パターンも生成</strong>し、時間帯の穴抜けを柔軟に防ぎます。</p>
+                    </div>
+
+                    <div class="border-l-4 border-green-400 pl-4 py-1">
+                        <h4 class="font-bold text-green-700 text-base mb-1">6. 休憩ルールの設定</h4>
+                        <p>「〇〇時間以上の勤務なら〇〇分の休憩を与える」というルールです。労働基準法に則り、6時間超で45分、8時間超で60分がデフォルトで設定されています。</p>
+                    </div>
                 </div>
             </div>
 
@@ -5493,8 +6082,8 @@ const app = {
                 <table class="w-full text-sm border-collapse">
                     <thead><tr class="bg-gray-50"><th class="p-2 text-left border">プラン</th><th class="p-2 text-left border">月額</th><th class="p-2 text-left border">スタッフ上限</th><th class="p-2 text-left border">機能</th></tr></thead>
                     <tbody>
-                        <tr><td class="p-2 border font-bold text-blue-600">Standard</td><td class="p-2 border">2,980円</td><td class="p-2 border">10名</td><td class="p-2 border">全AI機能・シフト管理全機能</td></tr>
-                        <tr class="bg-green-50"><td class="p-2 border font-bold text-green-600">Pro</td><td class="p-2 border">4,480円</td><td class="p-2 border">50名</td><td class="p-2 border">+ 優先サポート・分析レポート</td></tr>
+                        <tr><td class="p-2 border font-bold text-blue-600">Standard</td><td class="p-2 border">3,380円</td><td class="p-2 border">10名</td><td class="p-2 border">全AI機能・シフト管理全機能</td></tr>
+                        <tr class="bg-green-50"><td class="p-2 border font-bold text-green-600">Pro</td><td class="p-2 border">4,880円</td><td class="p-2 border">50名</td><td class="p-2 border">+ 優先サポート・分析レポート</td></tr>
                         <tr><td class="p-2 border font-bold text-purple-600">Premium</td><td class="p-2 border">9,980円</td><td class="p-2 border">無制限</td><td class="p-2 border">+ 複数店舗対応・専属サポート</td></tr>
                     </tbody>
                 </table>
@@ -5559,6 +6148,167 @@ const app = {
         </div>`;
     },
 
+    renderHQManual(container) {
+        if (!this.state.isHQ) { this.changeView('dashboard'); return; }
+
+        // 店舗選択中（＝organization_idがある）なら、サイドバーの枠内なので店舗マニュアルとの切り替えタブを表示
+        // 店舗未選択（＝本部ダッシュボードから直接アクセス）なら、本部ダッシュボードに戻るボタンを表示
+        const hasShop = !!this.state.organization_id;
+        let headerHtml = '';
+        if (hasShop) {
+            headerHtml = `
+            <div class="flex border-b border-gray-200 mb-6 bg-white rounded-xl p-1 shadow-sm max-w-4xl mx-auto">
+                <button onclick="app.changeView('manual')" class="flex-1 py-2.5 text-sm font-bold text-center rounded-lg text-gray-500 hover:text-gray-900 transition-all">
+                    <i class="fa-solid fa-book mr-1"></i>店舗管理者マニュアル
+                </button>
+                <button onclick="app.changeView('hq_manual')" class="flex-1 py-2.5 text-sm font-bold text-center rounded-lg bg-indigo-50 text-indigo-700 shadow-sm transition-all">
+                    <i class="fa-solid fa-building-user mr-1"></i>本部管理者マニュアル
+                </button>
+            </div>
+            `;
+        } else {
+            headerHtml = `
+            <div class="max-w-4xl mx-auto flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold text-gray-800"><i class="fa-solid fa-building-user mr-2 text-indigo-500"></i>本部管理者マニュアル</h2>
+                <button onclick="app.changeView('hq_dashboard')" class="px-4 py-2 text-sm font-bold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 rounded-xl bg-white transition-all shadow-sm">
+                    <i class="fa-solid fa-arrow-left mr-1"></i>本部ダッシュボードへ戻る
+                </button>
+            </div>
+            `;
+        }
+
+        container.innerHTML = `
+        ${headerHtml}
+        <div class="max-w-4xl mx-auto space-y-6 pb-20">
+            <!-- 概要 -->
+            <div class="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-2xl shadow-sm border border-indigo-100 p-6">
+                <h3 class="text-lg font-bold text-indigo-900 mb-2"><i class="fa-solid fa-circle-info mr-2"></i>本部アカウントとは</h3>
+                <p class="text-sm text-indigo-700 leading-relaxed">
+                    本部アカウントは、複数店舗（テナント）のシフト稼働状況や人件費、スタッフ構成を横断的に把握・閲覧するための専用アカウントです。<br>
+                    <strong>セキュリティ保護のため、全店舗データは「閲覧専用」であり、本部から直接データの追加や編集、削除を行うことはできません。</strong>
+                </p>
+            </div>
+
+            <!-- 目次 -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <h3 class="font-bold text-gray-800 mb-3">目次</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                    <a href="#hq-auth" class="text-indigo-600 hover:underline">1. 本部権限とセキュリティポリシー</a>
+                    <a href="#hq-dashboard-guide" class="text-indigo-600 hover:underline">2. 本部ダッシュボードの使い方</a>
+                    <a href="#hq-shop-access" class="text-indigo-600 hover:underline">3. 店舗へのアクセス手順</a>
+                    <a href="#hq-view-mode" class="text-indigo-600 hover:underline">4. 閲覧専用モードでの制限操作</a>
+                    <a href="#hq-faq" class="text-indigo-600 hover:underline">5. よくある質問 (FAQ)</a>
+                </div>
+            </div>
+
+            <!-- 1. 本部権限 -->
+            <div id="hq-auth" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <h4 class="text-lg font-bold text-gray-800 border-b pb-2 mb-4"><span class="text-indigo-500 mr-2">1.</span>本部権限とセキュリティポリシー</h4>
+                <div class="space-y-4">
+                    <p class="text-sm text-gray-600">本部管理者は、店舗のデータを誤って変更することを防ぐため、各画面が読み取り専用（閲覧のみ）の構成に自動制限されます。</p>
+                    <table class="w-full text-sm border-collapse border border-gray-200">
+                        <thead>
+                            <tr class="bg-gray-50 text-gray-700 font-bold">
+                                <th class="p-2 border text-left">操作項目</th>
+                                <th class="p-2 border text-center">本部管理者</th>
+                                <th class="p-2 border text-center">店舗管理者</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-600">
+                            <tr>
+                                <td class="p-2 border font-bold">登録店舗一覧の表示</td>
+                                <td class="p-2 border text-center text-green-600"><i class="fa-solid fa-circle-check"></i> 可能</td>
+                                <td class="p-2 border text-center text-red-500"><i class="fa-solid fa-circle-xmark"></i> 不可</td>
+                            </tr>
+                            <tr>
+                                <td class="p-2 border font-bold">シフト表の閲覧・印刷</td>
+                                <td class="p-2 border text-center text-green-600"><i class="fa-solid fa-circle-check"></i> 可能</td>
+                                <td class="p-2 border text-center text-green-600"><i class="fa-solid fa-circle-check"></i> 可能</td>
+                            </tr>
+                            <tr>
+                                <td class="p-2 border font-bold">スタッフ構成の閲覧</td>
+                                <td class="p-2 border text-center text-green-600"><i class="fa-solid fa-circle-check"></i> 可能</td>
+                                <td class="p-2 border text-center text-green-600"><i class="fa-solid fa-circle-check"></i> 可能</td>
+                            </tr>
+                            <tr>
+                                <td class="p-2 border font-bold">シフトの新規作成・編集</td>
+                                <td class="p-2 border text-center text-red-500 font-bold"><i class="fa-solid fa-circle-xmark"></i> 閲覧のみ</td>
+                                <td class="p-2 border text-center text-green-600"><i class="fa-solid fa-circle-check"></i> 可能</td>
+                            </tr>
+                            <tr>
+                                <td class="p-2 border font-bold">スタッフの追加・変更</td>
+                                <td class="p-2 border text-center text-red-500 font-bold"><i class="fa-solid fa-circle-xmark"></i> 閲覧のみ</td>
+                                <td class="p-2 border text-center text-green-600"><i class="fa-solid fa-circle-check"></i> 可能</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 2. ダッシュボード -->
+            <div id="hq-dashboard-guide" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <h4 class="text-lg font-bold text-gray-800 border-b pb-2 mb-4"><span class="text-indigo-500 mr-2">2.</span>本部ダッシュボードの使い方</h4>
+                <div class="space-y-3 text-sm text-gray-600 leading-relaxed">
+                    <p>ログイン後に表示される本部管理者用コントロールパネルです。ここでは以下の情報が確認できます。</p>
+                    <ul class="list-disc pl-5 space-y-2">
+                        <li><strong>登録店舗一覧:</strong> 傘下の全店舗の名前、契約ID、契約中のプラン（Standard/Proなど）、登録スタッフ数、および稼働状態が一覧で表示されます。</li>
+                        <li><strong>店舗へのアクセス:</strong> セキュリティ保護のため、一覧から店舗を直接クリックして入ることはできません。店舗に入るには次の「店舗へのアクセス手順」を実行してください。</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- 3. 店舗へのアクセス手順 -->
+            <div id="hq-shop-access" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <h4 class="text-lg font-bold text-gray-800 border-b pb-2 mb-4"><span class="text-indigo-500 mr-2">3.</span>店舗へのアクセス手順</h4>
+                <div class="space-y-4">
+                    <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-sm text-indigo-900">
+                        店舗の詳細情報やシフト表を確認するには、以下の手順で<strong>認証</strong>を行ってください。
+                    </div>
+                    <ol class="list-decimal pl-5 text-sm text-gray-600 space-y-3">
+                        <li>本部ダッシュボードの<strong>「指定の店舗を閲覧」</strong>欄を確認します。</li>
+                        <li>一覧表から、アクセスしたい店舗の<strong>契約ID（15桁）</strong>をコピーまたは入力します。</li>
+                        <li>その店舗の<strong>管理者パスワード</strong>（または店舗用一般パスワード）を入力します。</li>
+                        <li><strong>「閲覧する」</strong>ボタンをクリックします。</li>
+                        <li>認証に成功すると、店舗側の管理画面に切り替わり、ヘッダーに「<i class="fa-solid fa-eye mr-1"></i>閲覧専用モード」と表示されます。</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- 4. 閲覧専用モードでの制限操作 -->
+            <div id="hq-view-mode" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <h4 class="text-lg font-bold text-gray-800 border-b pb-2 mb-4"><span class="text-indigo-500 mr-2">4.</span>閲覧専用モードでの制限操作</h4>
+                <div class="space-y-3 text-sm text-gray-600 leading-relaxed">
+                    <p>店舗に入った後は、店長アカウントと同等の表示情報を確認できますが、操作ボタンの大部分は非表示または無効化されます。</p>
+                    <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 text-xs">
+                        ⚠️ <strong>ご注意:</strong> 本部閲覧中は、ボタン（「追加」「保存」「作成」「削除」など）は画面から自動的に非表示になります。もし編集が必要な場合は、自店舗の管理者が「店舗管理者ログイン」からアクセスして操作する必要があります。
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. FAQ -->
+            <div id="hq-faq" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <h4 class="text-lg font-bold text-gray-800 border-b pb-2 mb-4"><span class="text-indigo-500 mr-2">5.</span>よくある質問 (FAQ)</h4>
+                <div class="space-y-4">
+                    <div class="space-y-1">
+                        <p class="text-sm font-bold text-gray-800">Q. 店舗一覧から直接入れないのはなぜですか？</p>
+                        <p class="text-sm text-gray-600">A. セキュリティおよび誤操作防止のため、各テナントの管理者パスワードを入力する追加認証を必須としています。これにより不正アクセスや意図しない店舗データの閲覧を防止しています。</p>
+                    </div>
+                    <hr class="border-gray-100">
+                    <div class="space-y-1">
+                        <p class="text-sm font-bold text-gray-800">Q. ログアウトするにはどうすればよいですか？</p>
+                        <p class="text-sm text-gray-600">A. 画面ヘッダー右上の「ログアウト」ボタンをクリックしてください。即座にセッションがクリアされ、ログイン画面に戻ります。</p>
+                    </div>
+                    <hr class="border-gray-100">
+                    <div class="space-y-1">
+                        <p class="text-sm font-bold text-gray-800">Q. パスワードが一致しているのに店舗に入れません。</p>
+                        <p class="text-sm text-gray-600">A. 契約IDが15桁正確に入力されているかご確認ください（スペースなどの余分な文字が含まれていないか注意してください）。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        `;
+    },
+
     // --- その他 ---
     calculateMonthlyStats() {
         const year = this.state.currentDate.getFullYear();
@@ -5572,7 +6322,7 @@ const app = {
             const start = new Date(`${shift.date}T${shift.start_time}`);
             const end = new Date(`${shift.date}T${shift.end_time}`);
             if (end < start) end.setDate(end.getDate() + 1);
-            const hours = (end - start) / (1000 * 60 * 60) - (shift.break_minutes / 60);
+            const hours = (end - start) / (1000 * 60 * 60) - ((shift.break_minutes || 0) / 60);
             if (hours > 0) {
                 totalHours += hours;
                 if (staff.salary_type === 'hourly') {
@@ -5638,16 +6388,16 @@ const app = {
                 <div class="bg-white border ${style.border} rounded-lg p-4 flex gap-4">
                     <div class="mt-1">${style.icon}</div>
                     <div>
-                        <h4 class="font-bold text-gray-800 mb-1">${s.title}</h4>
-                        <p class="text-sm text-gray-600 mb-3">${s.desc}</p>
-                        <p class="text-xs font-bold text-gray-500">${s.action}</p>
+                        <h4 class="font-bold text-gray-800 mb-1">${this._sanitize(s.title || '')}</h4>
+                        <p class="text-sm text-gray-600 mb-3">${this._sanitize(s.desc || '')}</p>
+                        <p class="text-xs font-bold text-gray-500">${this._sanitize(s.action || '')}</p>
                     </div>
                 </div>`;
             }).join('');
 
         } catch (e) {
             console.error(e);
-            content.innerHTML = `<div class="text-red-500 p-4"><i class="fa-solid fa-circle-exclamation mr-2"></i>診断エラー: ${e.message}</div>`;
+            content.innerHTML = `<div class="text-red-500 p-4"><i class="fa-solid fa-circle-exclamation mr-2"></i>診断エラー: ${this._sanitize(e.message)}</div>`;
         }
     },
     
@@ -5744,23 +6494,13 @@ const app = {
         }
         const code = raw.toUpperCase();
         try {
-            const SUPA_URL = (typeof RAKUSHIFT_CONFIG !== 'undefined' && RAKUSHIFT_CONFIG.SUPABASE_URL) || '';
-            const SUPA_KEY = (typeof RAKUSHIFT_CONFIG !== 'undefined' && RAKUSHIFT_CONFIG.SUPABASE_ANON_KEY) || '';
-            const res = await fetch(`${SUPA_URL}/rest/v1/rpc/validate_referrer_code`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'apikey': SUPA_KEY,
-                    'Authorization': 'Bearer ' + SUPA_KEY,
-                },
-                body: JSON.stringify({ p_code: code })
-            });
-            const result = await res.json();
-            if (result.valid) {
-                status.innerHTML = `<span class="text-green-600"><i class="fa-solid fa-circle-check mr-1"></i>有効: ${result.name}</span>`;
+            // 統一の API.rpc() 経由で呼ぶ (エラーハンドリング・リトライ機構の恩恵)
+            const result = await API.rpc('validate_referrer_code', { p_code: code });
+            if (result && result.valid) {
+                status.innerHTML = `<span class="text-green-600"><i class="fa-solid fa-circle-check mr-1"></i>有効: ${this._sanitize(result.name)}</span>`;
                 this._markFieldError('newSubReferrerCode', false);
             } else {
-                status.innerHTML = `<span class="text-red-500"><i class="fa-solid fa-circle-xmark mr-1"></i>${result.message || '無効なコードです'}（紹介者がいない場合は「なし」と入力）</span>`;
+                status.innerHTML = `<span class="text-red-500"><i class="fa-solid fa-circle-xmark mr-1"></i>${this._sanitize(result.message || '無効なコードです')}（紹介者がいない場合は「なし」と入力）</span>`;
                 this._markFieldError('newSubReferrerCode', true);
             }
         } catch (e) {
@@ -5803,21 +6543,11 @@ const app = {
         if (!this._isReferrerNone(referrerInput)) {
             referrerCode = referrerInput.toUpperCase();
             try {
-                const SUPA_URL = (typeof RAKUSHIFT_CONFIG !== 'undefined' && RAKUSHIFT_CONFIG.SUPABASE_URL) || '';
-                const SUPA_KEY = (typeof RAKUSHIFT_CONFIG !== 'undefined' && RAKUSHIFT_CONFIG.SUPABASE_ANON_KEY) || '';
-                const vres = await fetch(`${SUPA_URL}/rest/v1/rpc/validate_referrer_code`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'apikey': SUPA_KEY,
-                        'Authorization': 'Bearer ' + SUPA_KEY,
-                    },
-                    body: JSON.stringify({ p_code: referrerCode })
-                });
-                const vresult = await vres.json();
-                if (!vresult.valid) {
+                // 統一の API.rpc() 経由で呼ぶ
+                const vresult = await API.rpc('validate_referrer_code', { p_code: referrerCode });
+                if (!vresult || !vresult.valid) {
                     this._markFieldError('newSubReferrerCode', true);
-                    this.showToast(`紹介者コード: ${vresult.message || '無効'}（紹介者がいない場合は「なし」と入力）`, 'error');
+                    this.showToast(`紹介者コード: ${this._sanitize(vresult?.message || '無効')}（紹介者がいない場合は「なし」と入力）`, 'error');
                     return;
                 }
             } catch (e) {
@@ -5915,7 +6645,8 @@ const app = {
         let colorClass = type === 'success' ? 'border-green-200 text-green-600' : type === 'error' ? 'border-red-200 text-red-600' : 'border-gray-200 text-gray-600';
         let icon = type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-circle-xmark' : 'fa-info-circle';
         toast.className = `flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border bg-white transform transition-all duration-300 translate-y-2 opacity-0 min-w-[300px] ${colorClass}`;
-        toast.innerHTML = `<i class="fa-solid ${icon}"></i><span class="text-sm font-medium text-gray-700">${message}</span>`;
+        const safeMsg = this._sanitize(message);
+        toast.innerHTML = `<i class="fa-solid ${icon}"></i><span class="text-sm font-medium text-gray-700">${safeMsg}</span>`;
         container.appendChild(toast);
         requestAnimationFrame(() => toast.classList.remove('translate-y-2', 'opacity-0'));
         setTimeout(() => { toast.classList.add('opacity-0', 'translate-x-full'); setTimeout(() => toast.remove(), 300); }, 3000);
@@ -5937,8 +6668,8 @@ const app = {
         if (!plansEl) return;
 
         const plans = [
-            { key: 'standard', name: 'Standard', price: '2,980', limit: 10, color: 'blue', features: ['スタッフ10名まで', 'AI自動シフト生成', 'AI労基法チェック', 'シフト管理全機能'] },
-            { key: 'pro', name: 'Pro', price: '4,480', limit: 50, badge: '人気', color: 'green', features: ['スタッフ50名まで', '全AI機能', '優先サポート', '分析レポート'] },
+            { key: 'standard', name: 'Standard', price: '3,380', limit: 10, color: 'blue', features: ['スタッフ10名まで', 'AI自動シフト生成', 'AI労基法チェック', 'シフト管理全機能'] },
+            { key: 'pro', name: 'Pro', price: '4,880', limit: 50, badge: '人気', color: 'green', features: ['スタッフ50名まで', '全AI機能', '優先サポート', '分析レポート'] },
             { key: 'premium', name: 'Premium', price: '9,980', limit: 9999, color: 'purple', features: ['スタッフ無制限', '全AI機能', '複数店舗対応', '専属サポート'] },
         ];
 
@@ -6143,7 +6874,7 @@ const app = {
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
                     <i class="fa-solid fa-exclamation-triangle text-4xl text-amber-400 mb-4"></i>
                     <p class="text-gray-600 font-bold">お知らせの取得に失敗しました</p>
-                    <p class="text-xs text-gray-400 mt-2">${e.message}</p>
+                    <p class="text-xs text-gray-400 mt-2">${this._sanitize(e.message || '')}</p>
                     <button onclick="app._loadAnnouncementsAdmin()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition">再試行</button>
                 </div>
             `;
@@ -6229,11 +6960,11 @@ const app = {
 
         // 本文 (改行をbrに変換)
         const bodyEl = document.getElementById('announcementBody');
-        bodyEl.innerHTML = item.content.split('\n').map(line => `<p>${line}</p>`).join('');
+        bodyEl.innerHTML = item.content.split('\n').map(line => `<p>${this._sanitize(line)}</p>`).join('');
 
         // アクションボタン
         const actionEl = document.getElementById('announcementAction');
-        if (item.target_url) {
+        if (item.target_url && /^https?:\/\//i.test(item.target_url)) {
             actionEl.classList.remove('hidden');
             document.getElementById('announcementLink').href = item.target_url;
             document.getElementById('announcementBtnText').textContent = item.button_text || '詳しく見る';
@@ -6324,10 +7055,11 @@ const app = {
      * @param {string} targetType - 'reset_all' | 'empty_only'
      * @param {Array} dates - 対象日付配列
      */
-    showShiftPreview(shifts, targetType, dates) {
+    showShiftPreview(shifts, targetType, dates, report) {
         this._previewShifts = shifts;
         this._previewTargetType = targetType;
         this._previewDates = dates;
+        this._previewReport = report || null;
 
         // サマリー統計
         const totalShifts = shifts.length;
@@ -6364,6 +7096,58 @@ const app = {
             `;
         }
 
+        // ⚠️ 制約違反レポート (report があれば表示)
+        if (this._previewReport) {
+            const r = this._previewReport;
+            const ot = (r.overtime_warnings || []).slice(0, 10);
+            const cg = r.coverage_gaps || [];
+            const oc = r.open_close_gaps || [];
+            const mg = r.manager_gaps || [];
+            const hasAny = ot.length || cg.length || oc.length || mg.length;
+            let warnHtml = '';
+            if (hasAny) {
+                warnHtml = `<div class="mt-4 mb-2 bg-amber-50 border border-amber-300 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="text-sm font-bold text-amber-800"><i class="fa-solid fa-triangle-exclamation mr-1"></i>制約違反・警告レポート</div>
+                        <div class="text-xs text-gray-500">Tier ${r.tier || '?'} / ${r.mode || '?'} モード</div>
+                    </div>`;
+                if (cg.length) {
+                    warnHtml += `<div class="mb-2"><div class="text-xs font-bold text-amber-700 mb-1">🟧 スタッフ不足: ${cg.length}件</div><div class="text-xs text-gray-700 max-h-32 overflow-y-auto bg-white rounded p-2 border border-amber-100">${
+                        cg.slice(0, 20).map(g => `<div>・${g.date} ${g.time}: 必要 ${g.required}名 / <span class="text-red-600 font-bold">${g.shortage}名不足</span></div>`).join('')
+                    }${cg.length > 20 ? `<div class="text-gray-400 mt-1">... 他 ${cg.length - 20} 件</div>` : ''}</div></div>`;
+                }
+                if (oc.length) {
+                    warnHtml += `<div class="mb-2"><div class="text-xs font-bold text-red-700 mb-1">🟥 開け締めに社員不在: ${oc.length}件</div><div class="text-xs text-gray-700 max-h-24 overflow-y-auto bg-white rounded p-2 border border-amber-100">${
+                        oc.slice(0, 15).map(g => `<div>・${g.date} ${g.time}: 月給/管理者ロールのスタッフが不在</div>`).join('')
+                    }${oc.length > 15 ? `<div class="text-gray-400 mt-1">... 他 ${oc.length - 15} 件</div>` : ''}</div></div>`;
+                }
+                if (mg.length) {
+                    warnHtml += `<div class="mb-2"><div class="text-xs font-bold text-amber-700 mb-1">🟨 管理者不足: ${mg.length}件</div><div class="text-xs text-gray-700 max-h-24 overflow-y-auto bg-white rounded p-2 border border-amber-100">${
+                        mg.slice(0, 15).map(g => `<div>・${g.date} ${g.time}: 必要 ${g.required}名 / ${g.shortage}名不足</div>`).join('')
+                    }${mg.length > 15 ? `<div class="text-gray-400 mt-1">... 他 ${mg.length - 15} 件</div>` : ''}</div></div>`;
+                }
+                if (ot.length) {
+                    warnHtml += `<div class="mb-1"><div class="text-xs font-bold text-amber-700 mb-1">⏰ 時間超過: ${ot.length}件</div><div class="text-xs text-gray-700 bg-white rounded p-2 border border-amber-100">${
+                        ot.map(w => `<div>・${this._sanitize(w)}</div>`).join('')
+                    }</div></div>`;
+                }
+                warnHtml += `<div class="text-[11px] text-amber-700 mt-2"><i class="fa-solid fa-circle-info mr-1"></i>これらは制約緩和で「強行生成」された場合のみ発生します。スタッフ追加や勤務条件見直しで解消可能。</div>`;
+                warnHtml += `</div>`;
+            } else {
+                warnHtml = `<div class="mt-4 mb-2 bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center gap-2"><i class="fa-solid fa-circle-check text-emerald-600"></i><span class="text-sm font-bold text-emerald-700">制約違反なし: 全条件を満たした最適配置です</span></div>`;
+            }
+            const summaryParent = document.getElementById('previewSummary');
+            if (summaryParent) {
+                // summaryEl の直後に挿入
+                const existing = document.getElementById('previewReportSection');
+                if (existing) existing.remove();
+                const wrapper = document.createElement('div');
+                wrapper.id = 'previewReportSection';
+                wrapper.innerHTML = warnHtml;
+                summaryParent.parentNode.insertBefore(wrapper, summaryParent.nextSibling);
+            }
+        }
+
         // 日付ごとのテーブル生成
         const contentEl = document.getElementById('previewContent');
         if (contentEl) {
@@ -6394,7 +7178,8 @@ const app = {
                                         <th class="px-3 py-2 text-center">出勤</th>
                                         <th class="px-3 py-2 text-center">退勤</th>
                                         <th class="px-3 py-2 text-center">休憩</th>
-                                        <th class="px-3 py-2 text-center rounded-r-lg">実働</th>
+                                        <th class="px-3 py-2 text-center">実働</th>
+                                        <th class="px-3 py-2 text-left rounded-r-lg">配置理由</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-100">
@@ -6422,14 +7207,27 @@ const app = {
                     if (endMin <= startMin) endMin += 1440;
                     const workHours = ((endMin - startMin) - breakMin) / 60;
 
+                    const reasonText = shift.reason || '通常配置';
+                    // 理由ごとに色分け (一覧性UP)
+                    const reasonColor = reasonText.includes('既存')   ? 'bg-gray-100 text-gray-700' :
+                                        reasonText.includes('承認済') ? 'bg-emerald-100 text-emerald-700' :
+                                        reasonText.includes('完全一致')? 'bg-blue-100 text-blue-700' :
+                                        reasonText.includes('希望')    ? 'bg-sky-100 text-sky-700' :
+                                        reasonText.includes('優先度')  ? 'bg-amber-100 text-amber-700' :
+                                        reasonText.includes('メンター')? 'bg-purple-100 text-purple-700' :
+                                        reasonText.includes('月給')    ? 'bg-pink-100 text-pink-700' :
+                                        reasonText.includes('レギュラ')? 'bg-indigo-100 text-indigo-700' :
+                                        reasonText.includes('高評価')  ? 'bg-yellow-100 text-yellow-700' :
+                                                                          'bg-slate-100 text-slate-600';
                     html += `
                         <tr class="hover:bg-gray-50">
-                            <td class="px-3 py-2 font-bold text-gray-800">${staff.name || '不明'}</td>
+                            <td class="px-3 py-2 font-bold text-gray-800">${this._sanitize(staff.name || '不明')}</td>
                             <td class="px-3 py-2">${roleBadge}</td>
                             <td class="px-3 py-2 text-center font-mono text-emerald-600 font-bold">${shift.start_time}</td>
                             <td class="px-3 py-2 text-center font-mono text-red-500 font-bold">${shift.end_time}</td>
                             <td class="px-3 py-2 text-center text-gray-500">${breakMin}分</td>
                             <td class="px-3 py-2 text-center font-bold">${workHours.toFixed(1)}h</td>
+                            <td class="px-3 py-2"><span class="inline-block ${reasonColor} text-[11px] px-2 py-0.5 rounded-full font-bold">${this._sanitize(reasonText)}</span></td>
                         </tr>
                     `;
                 }
@@ -6606,6 +7404,69 @@ const app = {
         } catch (e) {
             console.error('Password change error:', e);
             this.showToast('パスワード変更に失敗しました: ' + e.message, 'error');
+        }
+    },
+
+    // --- 管理者パスワード変更 (店舗管理者) ---
+    openAdminPasswordChange() {
+        // 簡易ダイアログ (現在/新規/確認)
+        const cur = prompt('現在の管理者パスワードを入力してください\n(初期値: rakushift1234)', '');
+        if (cur === null) return;
+        const np1 = prompt('新しい管理者パスワード (6文字以上):', '');
+        if (np1 === null) return;
+        if (!np1 || np1.length < 6) { this.showToast('6文字以上で入力してください', 'error'); return; }
+        const np2 = prompt('もう一度入力してください:', '');
+        if (np1 !== np2) { this.showToast('新しいパスワードが一致しません', 'error'); return; }
+        this._submitAdminPasswordChange(cur, np1);
+    },
+
+    async _submitAdminPasswordChange(oldPw, newPw) {
+        const contractId = this.state.config?.contract_id || API.session?.user?.contract_id;
+        if (!contractId) { this.showToast('セッションエラー: 再ログインしてください', 'error'); return; }
+        try {
+            const result = await API.rpc('update_admin_password_by_contract', {
+                p_contract_id: contractId,
+                p_old_password: oldPw,
+                p_new_password: newPw,
+            });
+            if (result && result.success) {
+                this.showToast('管理者パスワードを変更しました。次回管理者ログイン時から有効です。', 'success');
+            } else {
+                this.showToast(result?.message || '変更に失敗しました', 'error');
+            }
+        } catch (e) {
+            console.error('Admin password change error:', e);
+            this.showToast('変更に失敗しました', 'error');
+        }
+    },
+
+    // --- 本部管理者パスワード変更 ---
+    async openHQPasswordChange() {
+        if (!this.state.isHQ) { this.showToast('本部としてログインしている必要があります', 'error'); return; }
+        const loginId = (API.session?.user?.login_id) || prompt('本部ログインID:', 'hq_master');
+        if (!loginId) return;
+        const cur = prompt('現在の本部パスワード:', '');
+        if (cur === null) return;
+        const np1 = prompt('新しい本部パスワード (8文字以上):', '');
+        if (!np1 || np1.length < 8) { this.showToast('8文字以上で入力してください', 'error'); return; }
+        const np2 = prompt('もう一度入力してください:', '');
+        if (np1 !== np2) { this.showToast('新しいパスワードが一致しません', 'error'); return; }
+
+        try {
+            const result = await API.rpc('update_hq_admin_password', {
+                p_login_id: loginId,
+                p_old_password: cur,
+                p_new_password: np1,
+            });
+            if (result && result.success) {
+                this.showToast('本部パスワードを変更しました。一度ログアウトされます。', 'success');
+                setTimeout(() => this.logout(), 2000);
+            } else {
+                this.showToast(result?.message || '変更に失敗しました', 'error');
+            }
+        } catch (e) {
+            console.error('HQ password change error:', e);
+            this.showToast('変更に失敗しました', 'error');
         }
     },
 

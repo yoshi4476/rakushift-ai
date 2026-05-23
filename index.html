@@ -8,7 +8,22 @@
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta http-equiv="X-Frame-Options" content="DENY">
-    
+    <!-- Content Security Policy: XSS 被害を構造的に縮小する。
+         tailwindcss CDN は inline-style を生成するため style-src に 'unsafe-inline' は許可。
+         script-src の 'unsafe-inline' は admin.html 等の inline script で必要。
+         将来 inline script を撤去できれば script-src から 'unsafe-inline' を外せる。-->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net;
+        style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com;
+        font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:;
+        img-src 'self' data: blob: https:;
+        connect-src 'self' https://*.supabase.co https://*.up.railway.app https://*.railway.app https://api.stripe.com;
+        frame-ancestors 'none';
+        base-uri 'self';
+        form-action 'self';
+    ">
+
     <!-- Frontend Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -114,6 +129,17 @@
             #viewContainer { padding: 8px !important; }
         }
 
+        /* 斜線パターン（特別休日・イレギュラーシフト表示用） */
+        .pattern-diagonal-lines {
+            background-image: repeating-linear-gradient(
+                135deg,
+                transparent,
+                transparent 4px,
+                rgba(239, 68, 68, 0.12) 4px,
+                rgba(239, 68, 68, 0.12) 6px
+            );
+        }
+
         /* Print Styles - Standard Fallback */
         @media print {
             body * {
@@ -194,11 +220,12 @@
                 <button id="mobileMenuBtn" class="md:hidden text-gray-500 hover:text-gray-700">
                     <i class="fa-solid fa-bars text-xl"></i>
                 </button>
-                <div class="flex items-center bg-gray-100 rounded-lg p-1">
+                <div class="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
                     <button id="prevPeriod" class="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-white hover:shadow-sm rounded-md transition-all">
                         <i class="fa-solid fa-chevron-left text-xs"></i>
                     </button>
-                    <span id="currentPeriodDisplay" class="px-4 text-sm font-bold text-gray-700 min-w-[100px] text-center">Loading...</span>
+                    <select id="jumpYear" class="px-2 py-1 text-sm bg-white border border-gray-200 rounded-md font-bold text-gray-700 hover:border-blue-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300" title="年を選択"></select>
+                    <select id="jumpMonth" class="px-2 py-1 text-sm bg-white border border-gray-200 rounded-md font-bold text-gray-700 hover:border-blue-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300" title="月を選択"></select>
                     <button id="nextPeriod" class="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-white hover:shadow-sm rounded-md transition-all">
                         <i class="fa-solid fa-chevron-right text-xs"></i>
                     </button>
@@ -274,11 +301,11 @@
                         <h3 class="text-xl font-bold text-gray-800 text-center mb-4">店舗管理者ログイン</h3>
                         <div>
                             <label class="block text-xs font-bold text-gray-500 mb-1">契約ID</label>
-                            <input type="text" id="adminLoginContractId" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例: demo">
+                            <input type="text" id="adminLoginContractId" maxlength="32" pattern="[A-Za-z0-9_\-]+" autocomplete="username" inputmode="text" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例: demo">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-500 mb-1">管理者パスワード</label>
-                            <input type="password" id="adminLoginPass" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="パスワード" onkeydown="if(event.key==='Enter') app.adminLogin()">
+                            <input type="password" id="adminLoginPass" maxlength="128" autocomplete="current-password" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="パスワード" onkeydown="if(event.key==='Enter') app.adminLogin()">
                         </div>
                         <button onclick="app.adminLogin()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition mt-2">ログイン</button>
                     </div>
@@ -288,11 +315,11 @@
                         <h3 class="text-xl font-bold text-gray-800 text-center mb-4">店舗ログイン</h3>
                         <div>
                             <label class="block text-xs font-bold text-gray-500 mb-1">契約ID</label>
-                            <input type="text" id="loginContractId" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例: demo (または 15桁の契約ID)">
+                            <input type="text" id="loginContractId" maxlength="32" pattern="[A-Za-z0-9_\-]+" autocomplete="username" inputmode="text" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例: demo (または 15桁の契約ID)">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-500 mb-1">パスワード</label>
-                            <input type="password" id="loginShopPass" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="パスワード" onkeydown="if(event.key==='Enter') app.login()">
+                            <input type="password" id="loginShopPass" maxlength="128" autocomplete="current-password" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="パスワード" onkeydown="if(event.key==='Enter') app.login()">
                         </div>
                         <button onclick="app.login()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition mt-2">ログイン</button>
                     </div>
@@ -302,11 +329,11 @@
                         <h3 class="text-xl font-bold text-gray-800 text-center mb-4">本部ログイン</h3>
                         <div>
                             <label class="block text-xs font-bold text-gray-500 mb-1">本部ID</label>
-                            <input type="text" id="loginHqId" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="例: demo (または 本部ID)">
+                            <input type="text" id="loginHqId" maxlength="32" pattern="[A-Za-z0-9_\-]+" autocomplete="username" inputmode="text" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="例: demo (または 本部ID)">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-500 mb-1">パスワード</label>
-                            <input type="password" id="loginHqPass" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="パスワード" onkeydown="if(event.key==='Enter') app.hqLogin()">
+                            <input type="password" id="loginHqPass" maxlength="128" autocomplete="current-password" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="パスワード" onkeydown="if(event.key==='Enter') app.hqLogin()">
                         </div>
                         <button onclick="app.hqLogin()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition mt-2">ログイン</button>
                     </div>
@@ -557,7 +584,18 @@
             </div>
             <!-- フッター -->
             <div class="flex-shrink-0 p-5 border-t border-gray-100 bg-gray-50">
-                <button onclick="app.submitMultiStoreInquiry()" 
+                <!-- 個人情報取扱に関する同意 (個人情報保護法 第17条 利用目的の明示) -->
+                <div class="mb-3 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg p-3">
+                    <label class="flex items-start gap-2 cursor-pointer">
+                        <input type="checkbox" id="inquiryConsent" class="mt-0.5 flex-shrink-0">
+                        <span>
+                            <a href="#" onclick="app.openPrivacyPolicy(); return false;" class="text-blue-600 underline">プライバシーポリシー</a>
+                            を確認し、ご入力内容（会社情報・担当者連絡先）をお問い合わせ対応・営業連絡の目的で利用することに同意します。
+                            取得した個人情報は対応完了後に適切に管理・削除します。
+                        </span>
+                    </label>
+                </div>
+                <button onclick="app.submitMultiStoreInquiry()"
                     class="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2">
                     <i class="fa-solid fa-paper-plane"></i>
                     お問い合わせを送信
@@ -650,7 +688,7 @@
                             <input type="radio" name="newSubPlan" value="standard" class="hidden peer">
                             <div class="p-2 rounded-lg border-2 border-gray-200 peer-checked:border-blue-500 peer-checked:bg-blue-50 text-center transition">
                                 <p class="font-bold text-blue-600 text-xs">Standard</p>
-                                <p class="text-base font-bold leading-tight">2,980<span class="text-[10px]">円/月</span></p>
+                                <p class="text-base font-bold leading-tight">3,380<span class="text-[10px]">円/月</span></p>
                                 <p class="text-[9px] text-gray-500 mt-0.5">10名まで</p>
                             </div>
                         </label>
@@ -659,7 +697,7 @@
                             <div class="p-2 rounded-lg border-2 border-gray-200 peer-checked:border-green-500 peer-checked:bg-green-50 text-center transition relative">
                                 <div class="absolute -top-2 left-1/2 -translate-x-1/2 text-[8px] font-bold text-green-700 bg-green-200 rounded-full px-2">人気</div>
                                 <p class="font-bold text-green-600 text-xs">Pro</p>
-                                <p class="text-base font-bold leading-tight">4,480<span class="text-[10px]">円/月</span></p>
+                                <p class="text-base font-bold leading-tight">4,880<span class="text-[10px]">円/月</span></p>
                                 <p class="text-[9px] text-gray-500 mt-0.5">50名まで</p>
                             </div>
                         </label>
@@ -731,6 +769,11 @@
                     <input type="number" id="editShiftBreak" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-right" value="60">
                 </div>
 
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 mb-1">メモ <span class="font-normal text-gray-400">(任意・引継ぎ事項など)</span></label>
+                    <textarea id="editShiftMemo" rows="2" maxlength="500" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm resize-y" placeholder="例: レジ閉め担当 / 新人指導付き"></textarea>
+                </div>
+
                 <div class="pt-2">
                     <label class="flex items-center space-x-2 cursor-pointer">
                         <input type="checkbox" id="editShiftHoliday" class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500">
@@ -758,14 +801,22 @@
             </div>
             <div class="p-6 space-y-4 overflow-y-auto">
                 <form id="staffForm" onsubmit="return false;">
+                <div class="mb-4 p-3 bg-blue-50 border-l-4 border-blue-500 rounded text-xs text-blue-800 leading-relaxed shadow-sm">
+                    <strong><i class="fa-solid fa-lightbulb text-blue-600 mr-1"></i> スタッフ設定の重要性について</strong><br>
+                    ラクシフトAIは、ここに入力された条件を「絶対的なルール」として学習しシフトを組みます。<br>
+                    ・<span class="font-bold text-blue-600">正確に設定した場合</span>：NGな組み合わせを回避し、過労を防ぎ、ピーク時に優秀なスタッフを配置する「店長顔負けの完璧なシフト」を生成します。<br>
+                    ・<span class="font-bold text-red-500">設定が甘い場合</span>：AIは制限がないと判断し「特定の人が連日出勤する」「新人だけの時間帯ができる」など、法律上は問題なくても実用的でないシフトを組む原因になります。<br>
+                    出来る限り詳細な制約（人間関係・最低出勤日数・希望時間・<strong>担当ポジション</strong>など）を入力することで、AIの精度が劇的に向上します。<br>
+                    ※「担当ポジション」は店舗設定画面から自由にカスタマイズ（追加・変更）することができます。
+                </div>
                 <input type="hidden" id="staffId">
                 <div>
-                    <label class="block text-xs font-bold text-gray-500 mb-1">名前</label>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">名前</label>
                     <input type="text" id="staffName" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="山田 太郎">
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 mb-1">役割</label>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">役割</label>
                         <select id="staffRole" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
                             <option value="staff">スタッフ</option>
                             <option value="leader">リーダー</option>
@@ -773,7 +824,15 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 mb-1">評価ランク (優先度)</label>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">担当ポジション</label>
+                        <select id="staffPosition" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+                            <option value="any">指定なし (全般)</option>
+                            <option value="hall">ホール専用</option>
+                            <option value="kitchen">キッチン専用</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">評価ランク (優先度)</label>
                         <select id="staffEvaluation" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
                             <option value="A">A (優先・高)</option>
                             <option value="B" selected>B (標準)</option>
@@ -786,7 +845,7 @@
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 mb-1">契約区分</label>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">契約区分</label>
                         <select id="staffContractType" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
                             <option value="regular">レギュラー</option>
                             <option value="general" selected>一般</option>
@@ -794,7 +853,7 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 mb-1">シフト優先度</label>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">シフト優先度</label>
                         <select id="staffShiftPriority" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
                             <option value="high">高 (最優先)</option>
                             <option value="medium" selected>中 (通常)</option>
@@ -803,14 +862,39 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                    <div>
-                        <label class="block text-xs font-bold text-gray-500 mb-1">基本出勤時間 (任意)</label>
-                        <input type="time" id="staffPrefStart" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <div class="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="text-sm font-bold text-gray-800">シフト希望時間</div>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="checkbox" id="staffUsePrefHours" class="sr-only peer" onchange="app.togglePrefHoursInputs()">
+                            <div class="w-9 h-5 bg-gray-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 relative"></div>
+                            <span class="ml-2 text-xs font-bold text-gray-600">希望時間を指定する</span>
+                        </label>
                     </div>
-                    <div>
-                        <label class="block text-xs font-bold text-gray-500 mb-1">基本退勤時間 (任意)</label>
-                        <input type="time" id="staffPrefEnd" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-[10px] text-gray-500 leading-tight mb-2">※社員など、希望時間に関わらず店舗状況に合わせて柔軟にシフトに入ってほしいスタッフは「OFF」にしてください。</p>
+                    
+                    <div id="prefHoursInputGroup" class="hidden mt-3 pt-3 border-t border-gray-200">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-600 mb-1">平日 基本出勤時間</label>
+                                <input type="time" id="staffPrefStartWeekday" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-600 mb-1">平日 基本退勤時間</label>
+                                <input type="time" id="staffPrefEndWeekday" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-600 mb-1">土日祝 基本出勤時間</label>
+                                <input type="time" id="staffPrefStartWeekend" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-600 mb-1">土日祝 基本退勤時間</label>
+                                <input type="time" id="staffPrefEndWeekend" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -850,44 +934,61 @@
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 mb-1">給与形態</label>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">給与形態</label>
                         <select id="staffSalaryType" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white" onchange="app.toggleSalaryInputs()">
                             <option value="hourly">時給</option>
-                            <option value="monthly">月給</option>
+                            <option value="monthly">月給（社員）</option>
                         </select>
+                        <p class="text-xs text-emerald-600 mt-1 font-bold leading-tight">※社員（月給制・店長・副店長・社員）は希望時間に関わらず、店舗状況に応じて朝晩フレキシブルにシフト調整されます。</p>
                     </div>
                 </div>
                 
                 <div id="hourlyInputGroup">
-                    <label class="block text-xs font-bold text-gray-500 mb-1">時給 (円)</label>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">時給 (円)</label>
                     <input type="number" id="staffHourlyWage" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-right" placeholder="1100">
                 </div>
                 
                 <div id="monthlyInputGroup" class="hidden">
-                    <label class="block text-xs font-bold text-gray-500 mb-1">月給 (円)</label>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">月給 (円)</label>
                     <input type="number" id="staffMonthlySalary" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-right" placeholder="250000">
                 </div>
 
                 <div class="border-t border-gray-100 pt-4 mt-2">
-                    <h4 class="text-xs font-bold text-blue-600 mb-3">勤務制約 (AI自動作成用)</h4>
+                    <h4 class="text-sm font-bold text-blue-600 mb-3">勤務制約 (AI自動作成用)</h4>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                         <div>
-                            <label class="block text-xs text-gray-500 mb-1">週の最大勤務日数</label>
+                            <label class="block text-xs font-bold text-gray-600 mb-1">週の最大勤務日数</label>
                             <input type="number" id="staffMaxDaysPerWeek" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="5">
                         </div>
                         <div>
-                            <label class="block text-xs text-gray-500 mb-1">1日の最大勤務時間</label>
+                            <label class="block text-xs font-bold text-gray-600 mb-1">1日の最大勤務時間</label>
                             <input type="number" id="staffMaxHoursPerDay" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="8">
                         </div>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs text-gray-500 mb-1">週の最低出勤日数</label>
+                            <label class="block text-xs font-bold text-gray-600 mb-1">週の最低出勤日数</label>
                             <input type="number" id="staffMinDaysPerWeek" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="0">
                         </div>
                         <div>
-                            <label class="block text-xs text-gray-500 mb-1">月の最低出勤日数</label>
+                            <label class="block text-xs font-bold text-gray-600 mb-1">月の最低出勤日数</label>
                             <input type="number" id="staffMinDaysPerMonth" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="0">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border-t border-gray-100 pt-4 mt-2">
+                    <h4 class="text-sm font-bold text-purple-600 mb-3"><i class="fa-solid fa-users"></i> 人間関係コントロール (AI自動調整用)</h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2">
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1 font-bold">NGペア (カンマ区切りでスタッフ名入力)</label>
+                            <input type="text" id="staffNgPairs" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="例: 佐藤, 田中">
+                            <p class="text-xs text-gray-500 mt-1">※このスタッフと同じ時間帯に出勤させません</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1 font-bold">必須ペア (カンマ区切りでスタッフ名入力)</label>
+                            <input type="text" id="staffReqPairs" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="例: 鈴木">
+                            <p class="text-xs text-gray-500 mt-1">※このスタッフが出勤する時は必ず同じ時間に出勤させます</p>
                         </div>
                     </div>
                 </div>
@@ -978,8 +1079,8 @@
         <div class="modal-content bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div class="p-5 border-b border-gray-100 bg-gradient-to-r from-emerald-500 to-teal-600 flex justify-between items-center shrink-0">
                 <div>
-                    <h3 class="font-bold text-white text-lg flex items-center gap-2"><i class="fa-solid fa-eye"></i> シフト生成プレビュー</h3>
-                    <p class="text-white/70 text-xs mt-0.5">保存前に生成結果を確認できます</p>
+                    <h3 class="font-bold text-white text-lg flex items-center gap-2"><i class="fa-solid fa-flask"></i> シフト生成プレビュー (シミュレーション)</h3>
+                    <p class="text-white/80 text-xs mt-0.5">これは試算結果です。「確定して保存」を押すまで本番には反映されません</p>
                 </div>
                 <button onclick="app.cancelShiftPreview()" class="text-white/60 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
             </div>
@@ -994,7 +1095,7 @@
             <div class="p-4 bg-gray-50 border-t border-gray-100 flex justify-between items-center shrink-0">
                 <p class="text-xs text-gray-400"><i class="fa-solid fa-info-circle mr-1"></i>問題がなければ「確定して保存」を押してください</p>
                 <div class="flex gap-3">
-                    <button onclick="app.cancelShiftPreview()" class="px-5 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-lg transition">キャンセル</button>
+                    <button onclick="app.cancelShiftPreview()" class="px-5 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-lg transition" title="この結果を破棄して終了 (DB保存なし)"><i class="fa-solid fa-trash-can mr-1"></i>破棄 (保存しない)</button>
                     <button onclick="app.confirmShiftPreview()" class="px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-lg transition flex items-center gap-2">
                         <i class="fa-solid fa-check"></i> 確定して保存
                     </button>
@@ -1165,12 +1266,13 @@
             if(loading) loading.classList.add('hidden');
             const container = document.getElementById('viewContainer');
             if(container) {
+                const esc = (s) => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                 container.innerHTML = `
                     <div class="p-8 text-center text-red-600">
                         <h2 class="text-xl font-bold mb-2">システムエラー</h2>
                         <p class="font-mono text-xs bg-red-50 p-4 rounded text-left overflow-auto">
-                            ${msg}<br>
-                            at ${url}:${line}:${col}
+                            ${esc(msg)}<br>
+                            at ${esc(url)}:${line}:${col}
                         </p>
                         <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-gray-200 rounded">再読み込み</button>
                     </div>
@@ -1206,7 +1308,7 @@
                     <!-- JS で挿入 -->
                 </div>
                 <div id="announcementAction" class="mt-5 hidden">
-                    <a id="announcementLink" href="#" target="_blank"
+                    <a id="announcementLink" href="#" target="_blank" rel="noopener noreferrer"
                        class="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-sm font-bold hover:shadow-lg hover:scale-[1.02] transition-all">
                         <i class="fa-solid fa-external-link-alt"></i>
                         <span id="announcementBtnText">詳しく見る</span>
@@ -1231,11 +1333,12 @@
         </div>
     </div>
 
-    <script src="js/holidays.js?v=20260511"></script>
-    <script src="js/config.js?v=20260511"></script>
-    <script src="js/api.js?v=20260511"></script>
-    <script src="js/app_v2.js?v=20260517"></script>
-    <script src="js/gantt_drag.js?v=20260511"></script>
+    <!-- ?v= はキャッシュ破棄用バージョン。リリース時に scripts/bump-version.ps1 で一括更新 -->
+    <script src="js/holidays.js?v=202605230112"></script>
+    <script src="js/config.js?v=202605230112"></script>
+    <script src="js/api.js?v=202605230112"></script>
+    <script src="js/app_v2.js?v=202605230112"></script>
+    <script src="js/gantt_drag.js?v=202605230112"></script>
     
 </body>
 </html>

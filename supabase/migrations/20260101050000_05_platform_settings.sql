@@ -26,8 +26,8 @@ CREATE POLICY "platform_settings_no_direct" ON platform_settings
 INSERT INTO platform_settings (key, value, description) VALUES
     ('stripe_secret_key', '', 'Stripe Secret Key (sk_live_xxx)'),
     ('stripe_webhook_secret', '', 'Stripe Webhook署名シークレット (whsec_xxx)'),
-    ('stripe_price_standard', 'price_1TMgPnHUBWKymh7lorwaEaLt', 'Standardプラン 2,980円/月 (10名まで)'),
-    ('stripe_price_pro', 'price_1TMgQBHUBWKymh7lVRdIc0Ks', 'Proプラン 4,480円/月 (50名まで)'),
+    ('stripe_price_standard', 'price_1TMgPnHUBWKymh7lorwaEaLt', 'Standardプラン 3,380円/月 (10名まで)'),
+    ('stripe_price_pro', 'price_1TMgQBHUBWKymh7lVRdIc0Ks', 'Proプラン 4,880円/月 (50名まで)'),
     ('stripe_price_premium', 'price_1TMgQPHUBWKymh7ljBohmDgq', 'Premiumプラン 9,980円/月 (無制限)'),
     ('gemini_api_key', '', 'Google Gemini APIキー'),
     ('gemini_model', 'gemini-2.0-flash', 'Geminiモデル名'),

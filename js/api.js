@@ -16,6 +16,32 @@ const CALC_API_URL = CALC_BASE_URL + "/generate";
 const CHECK_API_URL = CALC_BASE_URL + "/check";
 const DIAGNOSE_API_URL = CALC_BASE_URL + "/diagnose";
 
+// セッション情報は sessionStorage で管理（タブ閉じで消滅 → XSS の持続性を抑制）。
+// UI設定 (組織ID/既読フラグ等) は従来どおり localStorage に保持する。
+// プライベートブラウジングやストレージ無効環境では in-memory Map にフォールバック
+// (localStorage への自動フォールバックは XSS 永続化リスクを生むため意図的に避ける)
+const SessionStore = (() => {
+    try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            // 動作テスト (Safari プライベートモード等で setItem が throw する場合あり)
+            const k = '__rakushift_storage_test__';
+            window.sessionStorage.setItem(k, '1');
+            window.sessionStorage.removeItem(k);
+            return window.sessionStorage;
+        }
+    } catch (_) { /* fall through */ }
+
+    // フォールバック: メモリ内ストア (タブ閉じで消滅。XSS 永続化耐性は最強だが、リロードで消える)
+    console.warn('[Storage] sessionStorage unavailable — using in-memory store. Session will not persist across reloads.');
+    const mem = new Map();
+    return {
+        getItem(key) { return mem.has(key) ? mem.get(key) : null; },
+        setItem(key, value) { mem.set(key, String(value)); },
+        removeItem(key) { mem.delete(key); },
+        clear() { mem.clear(); },
+    };
+})();
+
 const API = {
     session: null,
 
@@ -24,7 +50,7 @@ const API = {
         console.log("API init start (Supabase Mode)");
         try {
             // セッション復元 (Rakushift独自のセッションキーを優先)
-            const savedSession = localStorage.getItem('rakushift_user'); // 独自認証用
+            const savedSession = SessionStore.getItem('rakushift_user'); // 独自認証用
             
             if (savedSession) {
                 // 独自認証モードの復元
@@ -36,7 +62,7 @@ const API = {
                 // セッション復元完了
             } else {
                 // (旧互換) Supabase Auth の復元
-                const savedSbSession = localStorage.getItem('supabase.auth.token');
+                const savedSbSession = SessionStore.getItem('supabase.auth.token');
                 if (savedSbSession) {
                     this.session = JSON.parse(savedSbSession);
                     // セッション復元ログは本番では非表示
@@ -63,7 +89,7 @@ const API = {
             if (!res.ok) throw new Error(data.error_description || data.msg || "Login failed");
             
             this.session = data;
-            localStorage.setItem('supabase.auth.token', JSON.stringify(data));
+            SessionStore.setItem('supabase.auth.token', JSON.stringify(data));
             return data;
         } catch (e) {
             console.error("Login failed:", e);
@@ -97,6 +123,11 @@ const API = {
     // 認証は app.js 側で staff テーブルを直接検索して行うため (SaaS対応: StaticMode互換)
     // ここではセッション状態の管理のみ行う
     setSession(user) {
+        if (!user) {
+            this.session = null;
+            SessionStore.removeItem('rakushift_user');
+            return;
+        }
         // Supabaseモードでも、アプリ内の独自認証（契約ID）を使う場合は
         // userオブジェクトをラップしてsessionに入れる運用にする
         this.session = {
@@ -106,12 +137,12 @@ const API = {
         // ローカルストレージにも独自キーで保存（Supabase標準とは別管理）
         // セキュリティ: タイムスタンプを付与してセッション有効期限を管理
         user._session_created = Date.now();
-        localStorage.setItem('rakushift_user', JSON.stringify(user));
+        SessionStore.setItem('rakushift_user', JSON.stringify(user));
     },
 
     // セキュリティ: セッション有効期限チェック（フロントエンド側の補助制御）
     isSessionValid() {
-        const saved = localStorage.getItem('rakushift_user');
+        const saved = SessionStore.getItem('rakushift_user');
         if (!saved) return false;
         try {
             const user = JSON.parse(saved);
@@ -134,8 +165,8 @@ const API = {
             console.warn("Session destroy failed on server, proceeding with local logout");
         }
         this.session = null;
-        localStorage.removeItem('supabase.auth.token');
-        localStorage.removeItem('rakushift_user');
+        SessionStore.removeItem('supabase.auth.token');
+        SessionStore.removeItem('rakushift_user');
         location.reload();
     },
 
@@ -155,12 +186,18 @@ const API = {
             ...options.headers
         };
 
-        const savedSession = localStorage.getItem('rakushift_user');
+        const savedSession = SessionStore.getItem('rakushift_user');
         if (savedSession) {
             try {
                 const user = JSON.parse(savedSession);
                 if (user.session_id) {
                     headers['x-session-id'] = user.session_id;
+                }
+                // 本部 (hq_admin) セッションで login_id が無い旧バージョン → 強制破棄して再ログインを促す
+                // (新スキーマでは hq_login 時に login_id がセッションに保存される)
+                if (user.role === 'hq_admin' && !user.login_id) {
+                    console.warn('[Session] Old HQ session without login_id detected, clearing');
+                    SessionStore.removeItem('rakushift_user');
                 }
             } catch(e) {}
         }
@@ -268,12 +305,18 @@ const API = {
             'Authorization': `Bearer ${SUPABASE_KEY}`
         };
 
-        const savedSession = localStorage.getItem('rakushift_user');
+        const savedSession = SessionStore.getItem('rakushift_user');
         if (savedSession) {
             try {
                 const user = JSON.parse(savedSession);
                 if (user.session_id) {
                     headers['x-session-id'] = user.session_id;
+                }
+                // 本部 (hq_admin) セッションで login_id が無い旧バージョン → 強制破棄して再ログインを促す
+                // (新スキーマでは hq_login 時に login_id がセッションに保存される)
+                if (user.role === 'hq_admin' && !user.login_id) {
+                    console.warn('[Session] Old HQ session without login_id detected, clearing');
+                    SessionStore.removeItem('rakushift_user');
                 }
             } catch(e) {}
         }
@@ -324,7 +367,8 @@ const API = {
                 dates: payload.dates,
                 requests: payload.requests || [],
                 mode: payload.mode || 'auto',
-                contract_id: contractId
+                contract_id: contractId,
+                existing_shifts: payload.existing_shifts || []
             };
 
             const res = await fetch(CALC_API_URL, {
@@ -345,10 +389,11 @@ const API = {
                 return {
                     status: "success",
                     shifts: result.shifts,
-                    mode: result.mode || "python_optimized"
+                    mode: result.mode || "python_optimized",
+                    report: result.report || null
                 };
             } else if (result.status === 'success' && result.mode === 'math_failed') {
-                return { status: "success", shifts: [], mode: "math_failed" };
+                return { status: "success", shifts: [], mode: "math_failed", report: result.report || null };
             } else {
                 throw new Error(result.message || "Invalid response from server");
             }

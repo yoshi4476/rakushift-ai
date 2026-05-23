@@ -115,8 +115,8 @@ BEGIN
                     CASE
                         WHEN c.subscription_status = 'active' AND c.stripe_customer_id IS NOT NULL THEN
                             CASE c.stripe_plan
-                                WHEN 'standard' THEN 2980
-                                WHEN 'pro' THEN 4480
+                                WHEN 'standard' THEN 3380
+                                WHEN 'pro' THEN 4880
                                 WHEN 'premium' THEN 9980
                                 ELSE 0
                             END

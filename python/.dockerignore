@@ -1,6 +1,9 @@
+# =============================================================
+# このファイルは互換用。実際の build context はリポジトリルートのため、
+# 除外ルールは ../.dockerignore に集約されている。
+# Docker は build context 直下の .dockerignore を参照する仕様。
+# =============================================================
 __pycache__/
 *.pyc
 *.pyo
-scheduler_backup.py
-ai_scheduler.py
 .env

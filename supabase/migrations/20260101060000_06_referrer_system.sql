@@ -81,7 +81,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION list_referrers()
 RETURNS JSONB AS $$
 DECLARE
-    plan_prices JSONB := '{"standard": 2980, "pro": 4480, "premium": 9980}'::JSONB;
+    plan_prices JSONB := '{"standard": 3380, "pro": 4880, "premium": 9980}'::JSONB;
 BEGIN
     RETURN (
         SELECT COALESCE(jsonb_agg(
@@ -108,8 +108,8 @@ BEGIN
                 'monthly_revenue', (
                     SELECT COALESCE(SUM(
                         CASE c.stripe_plan
-                            WHEN 'standard' THEN 2980
-                            WHEN 'pro' THEN 4480
+                            WHEN 'standard' THEN 3380
+                            WHEN 'pro' THEN 4880
                             WHEN 'premium' THEN 9980
                             ELSE 0
                         END

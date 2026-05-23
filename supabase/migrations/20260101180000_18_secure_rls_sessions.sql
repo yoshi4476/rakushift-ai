@@ -149,6 +149,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- 3.4 ログアウト用RPC (セッション破棄)
+CREATE OR REPLACE FUNCTION destroy_session() 
+RETURNS VOID AS $$
+DECLARE
+    v_session_id UUID;
+BEGIN
+    v_session_id := get_session_id();
+    IF v_session_id IS NOT NULL THEN
+        DELETE FROM auth_sessions WHERE id = v_session_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 
 -- 4. RLS ポリシーの厳格化
 -- (既存の USING(true) 等のポリシーを削除して、セッションベースのポリシーに置き換え)
@@ -216,3 +229,189 @@ USING (organization_id = get_session_org_id());
 DROP POLICY IF EXISTS "announcements_select_all" ON announcements;
 CREATE POLICY "announcements_select_all" ON announcements FOR SELECT TO anon
 USING (get_session_role() IS NOT NULL);
+
+-- 5. auth_sessions 自体の RLS 制限 (Session Hijacking / Enumeration 防止)
+ALTER TABLE auth_sessions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_sessions_select_own" ON auth_sessions;
+CREATE POLICY "auth_sessions_select_own" ON auth_sessions FOR SELECT TO anon
+USING (id = get_session_id());
+
+DROP POLICY IF EXISTS "auth_sessions_delete_own" ON auth_sessions;
+CREATE POLICY "auth_sessions_delete_own" ON auth_sessions FOR DELETE TO anon
+USING (id = get_session_id());
+
+DROP POLICY IF EXISTS "auth_sessions_admin_all" ON auth_sessions;
+CREATE POLICY "auth_sessions_admin_all" ON auth_sessions FOR ALL TO anon
+USING (get_session_role() = 'hq_admin');
+
+-- 6. 管理者向けRPC関数のセキュリティチェック強化 (特権昇格/認証回避防止)
+CREATE OR REPLACE FUNCTION list_tenants()
+RETURNS JSONB AS $$
+BEGIN
+    IF COALESCE(get_session_role(), '') != 'hq_admin' THEN
+        RAISE EXCEPTION 'Access denied. Administrator privileges required.';
+    END IF;
+    RETURN (
+        SELECT jsonb_agg(
+            jsonb_build_object(
+                'organization_id', o.id,
+                'name', o.name,
+                'contract_id', c.contract_id,
+                'license_status', COALESCE(o.license_status, 'active'),
+                'license_suspended_at', o.license_suspended_at,
+                'data_deletion_scheduled_at', o.data_deletion_scheduled_at,
+                'license_note', COALESCE(o.license_note, ''),
+                'subscription_status', c.subscription_status,
+                'staff_count', (SELECT COUNT(*) FROM staff s WHERE s.organization_id = o.id),
+                'created_at', o.created_at
+            )
+        )
+        FROM organizations o
+        LEFT JOIN config c ON c.organization_id = o.id
+        ORDER BY o.created_at DESC
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION suspend_license(
+    p_organization_id UUID,
+    p_note TEXT DEFAULT ''
+) RETURNS JSONB AS $$
+DECLARE
+    v_org RECORD;
+BEGIN
+    IF COALESCE(get_session_role(), '') != 'hq_admin' THEN
+        RAISE EXCEPTION 'Access denied. Administrator privileges required.';
+    END IF;
+    SELECT id, name, license_status INTO v_org
+    FROM organizations WHERE id = p_organization_id;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'message', '組織が見つかりません');
+    END IF;
+
+    IF v_org.license_status = 'suspended' THEN
+        RETURN jsonb_build_object('success', false, 'message', '既にライセンスは停止中です');
+    END IF;
+
+    UPDATE organizations SET
+        license_status = 'suspended',
+        license_suspended_at = now(),
+        data_deletion_scheduled_at = now() + INTERVAL '6 months',
+        license_note = p_note
+    WHERE id = p_organization_id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'message', v_org.name || ' のライセンスを停止しました。データは6ヶ月間保持されます。',
+        'data_deletion_scheduled_at', (now() + INTERVAL '6 months')
+    );
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'message', SQLERRM);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION activate_license(
+    p_organization_id UUID,
+    p_note TEXT DEFAULT ''
+) RETURNS JSONB AS $$
+DECLARE
+    v_org RECORD;
+BEGIN
+    IF COALESCE(get_session_role(), '') != 'hq_admin' THEN
+        RAISE EXCEPTION 'Access denied. Administrator privileges required.';
+    END IF;
+    SELECT id, name, license_status, data_deletion_scheduled_at INTO v_org
+    FROM organizations WHERE id = p_organization_id;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'message', '組織が見つかりません');
+    END IF;
+
+    IF v_org.license_status = 'active' THEN
+        RETURN jsonb_build_object('success', false, 'message', '既にライセンスは有効です');
+    END IF;
+
+    UPDATE organizations SET
+        license_status = 'active',
+        license_suspended_at = NULL,
+        data_deletion_scheduled_at = NULL,
+        license_note = p_note
+    WHERE id = p_organization_id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'message', v_org.name || ' のライセンスを復活しました。'
+    );
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'message', SQLERRM);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION list_expired_tenants()
+RETURNS JSONB AS $$
+BEGIN
+    IF COALESCE(get_session_role(), '') != 'hq_admin' THEN
+        RAISE EXCEPTION 'Access denied. Administrator privileges required.';
+    END IF;
+    RETURN (
+        SELECT COALESCE(jsonb_agg(
+            jsonb_build_object(
+                'organization_id', o.id,
+                'name', o.name,
+                'contract_id', c.contract_id,
+                'license_suspended_at', o.license_suspended_at,
+                'data_deletion_scheduled_at', o.data_deletion_scheduled_at
+            )
+        ), '[]'::jsonb)
+        FROM organizations o
+        LEFT JOIN config c ON c.organization_id = o.id
+        WHERE o.license_status = 'suspended'
+          AND o.data_deletion_scheduled_at < now()
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION delete_tenant_data(
+    p_organization_id UUID
+) RETURNS JSONB AS $$
+DECLARE
+    v_org RECORD;
+    v_staff_count INTEGER;
+    v_shift_count INTEGER;
+    v_request_count INTEGER;
+BEGIN
+    IF COALESCE(get_session_role(), '') != 'hq_admin' THEN
+        RAISE EXCEPTION 'Access denied. Administrator privileges required.';
+    END IF;
+    SELECT id, name, license_status INTO v_org
+    FROM organizations WHERE id = p_organization_id;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'message', '組織が見つかりません');
+    END IF;
+
+    IF v_org.license_status = 'active' THEN
+        RETURN jsonb_build_object('success', false, 'message', 'アクティブなライセンスのデータは削除できません。先にライセンスを停止してください。');
+    END IF;
+
+    SELECT COUNT(*) INTO v_staff_count FROM staff WHERE organization_id = p_organization_id;
+    SELECT COUNT(*) INTO v_shift_count FROM shifts WHERE organization_id = p_organization_id;
+    SELECT COUNT(*) INTO v_request_count FROM requests WHERE organization_id = p_organization_id;
+
+    DELETE FROM organizations WHERE id = p_organization_id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'message', v_org.name || ' のデータを完全に削除しました。',
+        'deleted', jsonb_build_object(
+            'staff', v_staff_count,
+            'shifts', v_shift_count,
+            'requests', v_request_count
+        )
+    );
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'message', SQLERRM);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

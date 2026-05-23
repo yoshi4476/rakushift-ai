@@ -1,24 +1,21 @@
 -- 20_update_demo_passwords.sql
 -- ===========================================================
--- Migration: デモ用アカウントのパスワードをマニュアル（仕様書）に統一する
+-- Migration: デモ用アカウントのパスワードを統一する
+-- 修正: organizationsテーブルにはpassword/admin_passwordカラムがないため
+--       configテーブルのみ更新する。contract_idもconfigテーブルから取得。
 -- ===========================================================
 
 DO $$
 DECLARE
     v_demo_org_id UUID;
 BEGIN
-    -- 1. デモ用店舗のIDを取得
-    SELECT id INTO v_demo_org_id FROM organizations WHERE contract_id = 'demo' LIMIT 1;
+    -- 1. デモ用店舗のIDを取得（contract_idはconfigテーブルにある）
+    SELECT c.organization_id INTO v_demo_org_id 
+    FROM config c WHERE c.contract_id = 'demo' LIMIT 1;
 
-    -- デモ店舗が存在する場合、パスワードを仕様書の初期値(rakushift1234)に統一
+    -- デモ店舗が存在する場合、パスワードを統一
     IF v_demo_org_id IS NOT NULL THEN
-        UPDATE organizations
-        SET 
-            password = crypt('demo', gen_salt('bf')),
-            admin_password = crypt('demo', gen_salt('bf'))
-        WHERE id = v_demo_org_id;
-
-        -- configテーブルにパスワードが残っている場合も念のため更新
+        -- configテーブルのパスワードを更新
         UPDATE config
         SET 
             shop_password = crypt('demo', gen_salt('bf')),
