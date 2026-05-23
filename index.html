@@ -217,20 +217,20 @@
         <!-- Header -->
         <header class="min-h-16 bg-white border-b border-gray-200 flex items-center justify-between px-3 lg:px-6 shadow-sm z-20 flex-wrap gap-2 py-2">
             <div class="flex items-center gap-2 sm:gap-4 flex-wrap">
-                <button id="mobileMenuBtn" class="md:hidden text-gray-500 hover:text-gray-700 w-11 h-11 flex items-center justify-center">
-                    <i class="fa-solid fa-bars text-xl"></i>
+                <button id="mobileMenuBtn" aria-label="メニューを開く" class="md:hidden text-gray-500 hover:text-gray-700 w-11 h-11 flex items-center justify-center">
+                    <i class="fa-solid fa-bars text-xl" aria-hidden="true"></i>
                 </button>
-                <div class="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
-                    <button id="prevPeriod" class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center text-gray-500 hover:bg-white hover:shadow-sm rounded-md transition-all">
-                        <i class="fa-solid fa-chevron-left text-xs"></i>
+                <div class="flex items-center bg-gray-100 rounded-lg p-1 gap-1" role="group" aria-label="期間ナビゲーション">
+                    <button id="prevPeriod" aria-label="前の期間" class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center text-gray-500 hover:bg-white hover:shadow-sm rounded-md transition-all">
+                        <i class="fa-solid fa-chevron-left text-xs" aria-hidden="true"></i>
                     </button>
-                    <select id="jumpYear" class="px-2 py-1.5 text-sm bg-white border border-gray-200 rounded-md font-bold text-gray-700 hover:border-blue-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300 min-h-[36px]" title="年を選択"></select>
-                    <select id="jumpMonth" class="px-2 py-1.5 text-sm bg-white border border-gray-200 rounded-md font-bold text-gray-700 hover:border-blue-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300 min-h-[36px]" title="月を選択"></select>
-                    <button id="nextPeriod" class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center text-gray-500 hover:bg-white hover:shadow-sm rounded-md transition-all">
-                        <i class="fa-solid fa-chevron-right text-xs"></i>
+                    <select id="jumpYear" aria-label="表示する年" class="px-2 py-1.5 text-sm bg-white border border-gray-200 rounded-md font-bold text-gray-700 hover:border-blue-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300 min-h-[36px]" title="年を選択"></select>
+                    <select id="jumpMonth" aria-label="表示する月" class="px-2 py-1.5 text-sm bg-white border border-gray-200 rounded-md font-bold text-gray-700 hover:border-blue-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300 min-h-[36px]" title="月を選択"></select>
+                    <button id="nextPeriod" aria-label="次の期間" class="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center text-gray-500 hover:bg-white hover:shadow-sm rounded-md transition-all">
+                        <i class="fa-solid fa-chevron-right text-xs" aria-hidden="true"></i>
                     </button>
                 </div>
-                <button id="todayBtn" class="px-3 py-2 sm:py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 transition-colors min-h-[36px]">今日</button>
+                <button id="todayBtn" aria-label="今日に戻る" class="px-3 py-2 sm:py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 transition-colors min-h-[36px]">今日</button>
             </div>
 
             <div class="flex items-center gap-3" id="adminHeaderControls">
@@ -1334,11 +1334,11 @@
     </div>
 
     <!-- ?v= はキャッシュ破棄用バージョン。リリース時に scripts/bump-version.ps1 で一括更新 -->
-    <script src="js/holidays.js?v=202605231440"></script>
-    <script src="js/config.js?v=202605231440"></script>
-    <script src="js/api.js?v=202605231440"></script>
-    <script src="js/app_v2.js?v=202605231440"></script>
-    <script src="js/gantt_drag.js?v=202605231440"></script>
+    <script src="js/holidays.js?v=202605231452"></script>
+    <script src="js/config.js?v=202605231452"></script>
+    <script src="js/api.js?v=202605231452"></script>
+    <script src="js/app_v2.js?v=202605231452"></script>
+    <script src="js/gantt_drag.js?v=202605231452"></script>
     
 </body>
 </html>

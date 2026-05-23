@@ -467,12 +467,29 @@ const app = {
 
             // staffは全カラム取得（存在しないカラム指定エラーを防ぐ）
             const staffSelect = '*';
-            const [configRes, staffRes, shiftsRes, requestsRes] = await Promise.all([
+            // Promise.allSettled で1つの API 失敗で全体が崩れないように
+            // (例: requests テーブルに一時的な障害があっても shifts/staff は読める)
+            const settled = await Promise.allSettled([
                 API.list('config_safe', orgFilter),
                 API.list('staff', { ...orgFilter, select: staffSelect }),
                 API.list('shifts', shiftFilter),
                 API.list('requests', orgFilter)
             ]);
+            const _emptyRes = { data: [] };
+            const _getResult = (idx, label) => {
+                const r = settled[idx];
+                if (r.status === 'fulfilled') return r.value;
+                console.warn(`[loadData] ${label} fetch failed:`, r.reason);
+                return _emptyRes;
+            };
+            const configRes   = _getResult(0, 'config_safe');
+            const staffRes    = _getResult(1, 'staff');
+            const shiftsRes   = _getResult(2, 'shifts');
+            const requestsRes = _getResult(3, 'requests');
+            const failedCount = settled.filter(s => s.status === 'rejected').length;
+            if (failedCount > 0) {
+                this.showToast(`一部のデータ読み込みに失敗しました (${failedCount}件)。表示が不完全な可能性があります`, 'warning');
+            }
 
             // 3. configをマージ (DBの値を優先、足りない項目はデフォルトで補完)
             if (configRes.data && configRes.data.length > 0) {
@@ -750,7 +767,9 @@ const app = {
                     id: authResult.staff_id,
                     contract_id: inputContractId,
                     organization_id: orgId,
-                    session_id: authResult.session_id || ('admin_' + Date.now()),
+                    // サーバが session_id を返さなかった時の fallback は予測不可能な UUID に
+                    // (旧 Date.now() ベースは攻撃者が予測してセッション偽装可能だった)
+                    session_id: authResult.session_id || (crypto.randomUUID ? crypto.randomUUID() : 'admin_' + Date.now() + '_' + Math.random().toString(36).slice(2)),
                     name: authResult.name || '管理者',
                     role: authResult.role || 'admin'
                 });
@@ -968,7 +987,7 @@ const app = {
                 this.state.organization_id = null;
                 
                 API.setSession({
-                    session_id: result.session_id || ('hq_' + Date.now()),
+                    session_id: result.session_id || (crypto.randomUUID ? crypto.randomUUID() : 'hq_' + Date.now() + '_' + Math.random().toString(36).slice(2)),
                     name: result.company_name || 'HQ Admin',
                     role: 'hq_admin',
                     login_id: result.login_id || loginId,           // get_hq_scope() で必要
@@ -997,8 +1016,11 @@ const app = {
 
     async logout() {
         if(!confirm('アプリケーションから完全にログアウトしますか？\n（ログイン画面に戻ります）')) return;
-        
+
         await API.logout();
+        // タイマー全クリア (再ログイン時の重複・メモリリーク防止)
+        if (this.state.dashboardTimer) { clearInterval(this.state.dashboardTimer); this.state.dashboardTimer = null; }
+        if (this._tipTimer) { clearInterval(this._tipTimer); this._tipTimer = null; }
         // セキュリティ: 全ての認証状態を完全にクリア
         this.state.isAdmin = false;
         this.state.isShopLoggedIn = false;
@@ -1008,13 +1030,18 @@ const app = {
         this.state.staff = [];
         this.state.shifts = [];
         this.state.requests = [];
+        this.state.loadedShiftRange = null;
+        // gantt_drag のグローバルリスナーも破棄 (メモリリーク防止)
+        if (typeof GanttDrag !== 'undefined' && GanttDrag.destroy) {
+            try { GanttDrag.destroy(); } catch (_) {}
+        }
         // セキュリティ: セッション関連のlocalStorageを全消去
         sessionStorage.removeItem('rakushift_user');
         sessionStorage.removeItem('supabase.auth.token');
         localStorage.removeItem('rakushift_org_id');
         this.showToast('ログアウトしました', 'info');
         this.updateAuthUI();
-        this.changeView('dashboard'); 
+        this.changeView('dashboard');
         this.openModal('loginModal');
     },
 
